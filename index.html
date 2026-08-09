@@ -1,0 +1,2158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AMRAP">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0f14">
+<title>AMRAP Circuit Tracker</title>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#151b23; --card2:#1c2530; --border:#2a3542;
+    --text:#eef2f6; --muted:#8593a3; --accent:#3ddc84; --accent2:#ffb020;
+    --danger:#ff5c5c; --blue:#4da3ff;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding-bottom:env(safe-area-inset-bottom);
+    padding-top:env(safe-area-inset-top);
+    overscroll-behavior-y:none;
+  }
+  header.app{
+    position:sticky; top:0; z-index:10; background:rgba(11,15,20,0.95); backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--border); padding:14px 16px 10px;
+  }
+  header.app h1{margin:0 0 10px; font-size:19px; letter-spacing:0.3px;}
+  nav.tabs{display:flex; gap:8px;}
+  nav.tabs button{
+    flex:1; padding:10px 6px; border-radius:10px; border:1px solid var(--border);
+    background:var(--card); color:var(--muted); font-size:14px; font-weight:600;
+  }
+  nav.tabs button.active{background:var(--accent); color:#08130c; border-color:var(--accent);}
+  main{padding:16px; max-width:560px; margin:0 auto;}
+  .screen{display:none;}
+  .screen.active{display:block;}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:12px;}
+  .card h2{margin:0 0 10px; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;}
+  .superset-title{font-size:13px; color:var(--accent2); font-weight:700; margin:0 0 8px; text-transform:uppercase; letter-spacing:0.5px;}
+  .day-banner{
+    text-align:center; font-size:16px; font-weight:800; color:var(--accent2);
+    text-transform:uppercase; letter-spacing:0.5px; background:var(--card2);
+    border:1px solid var(--border); border-radius:10px; padding:10px; margin-bottom:12px;
+  }
+  select.day-banner{
+    width:100%; text-align:center; text-align-last:center; cursor:pointer;
+    appearance:none; -webkit-appearance:none; -moz-appearance:none;
+    padding:10px 34px 10px 14px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23ffb020' stroke-width='3'><path d='M6 9l6 6 6-6'/></svg>");
+    background-repeat:no-repeat; background-position:right 12px center;
+  }
+  select.day-banner option{background:var(--card2); color:var(--text); text-align:left;}
+  .day-nav-label{text-align:center; color:var(--muted); font-size:12px; margin-top:8px;}
+  .exercise-row{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .exercise-row input[type=text]{flex:1; min-width:0;}
+  .exercise-row input:disabled, .exercise-row input[type=number]:disabled{opacity:0.5;}
+  button.secondary.locked{background:var(--accent2); color:#2a1c00; border-color:var(--accent2);}
+  button.secondary:disabled{opacity:0.45;}
+  .target-fields{display:flex; align-items:center; gap:8px; white-space:nowrap; color:var(--muted); font-size:13px;}
+  .target-fields input{width:52px; text-align:center;}
+  input[type=text], input[type=number]{
+    background:var(--card2); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:10px 10px; font-size:15px; width:100%;
+  }
+  select{background:var(--card2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:10px; font-size:15px;}
+  button.primary{
+    background:var(--accent); color:#08130c; border:none; border-radius:12px;
+    padding:14px 18px; font-size:16px; font-weight:700; width:100%; margin-top:8px;
+  }
+  button.secondary{
+    background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:12px;
+    padding:12px 16px; font-size:15px; font-weight:600; width:100%; margin-top:8px;
+  }
+  button.danger{background:transparent; color:var(--danger); border:1px solid var(--danger);}
+  button.small{width:auto; padding:8px 12px; font-size:13px; border-radius:8px;}
+  .row2{display:flex; gap:8px;}
+  .row2 > *{flex:1;}
+  .timer-big{
+    text-align:center; padding:18px 0 6px;
+  }
+  .timer-big .clock{font-size:56px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:1px;}
+  .timer-big .label{color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:0.8px; margin-top:2px;}
+  #quickTimerClock{cursor:pointer;}
+  #quickTimerClock:focus{outline:2px solid var(--accent2); border-color:var(--accent2); cursor:text;}
+  #quickTimerClock:disabled{opacity:0.5; cursor:default;}
+  .cap-warn{color:var(--danger);}
+  .round-badge{
+    display:inline-block; background:var(--card2); border:1px solid var(--border); border-radius:999px;
+    padding:6px 14px; font-size:14px; font-weight:700; color:var(--blue);
+  }
+  .center{text-align:center;}
+  .exercise-log-row{
+    display:grid; grid-template-columns: 1fr 70px 70px; gap:8px; align-items:center; margin-bottom:8px;
+  }
+  .exercise-log-row .name{font-size:15px;}
+  .exercise-log-row .name small{display:block; color:var(--muted); font-size:11px; margin-top:2px;}
+  .exercise-log-row input{text-align:center;}
+  .col-head{display:grid; grid-template-columns:1fr 70px 70px; gap:8px; font-size:13px; color:var(--accent2); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;}
+  .col-head div:not(:first-child){text-align:center;}
+  .rest-screen{text-align:center; padding:30px 0;}
+  .rest-screen .ring{
+    width:180px; height:180px; border-radius:50%; border:8px solid var(--card2);
+    display:flex; align-items:center; justify-content:center; margin:0 auto 18px;
+    font-size:42px; font-weight:800; color:var(--accent2); position:relative;
+  }
+  .idle-hint{color:var(--muted); font-size:14px; text-align:center; padding:20px 10px;}
+  .interval-round{margin-bottom:12px;}
+  .interval-round.current .interval-round-label{color:var(--accent2);}
+  .interval-round-label{font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:5px;}
+  .interval-bar-row{display:flex; align-items:center; gap:8px; margin-bottom:4px;}
+  .interval-bar-tag{width:36px; flex-shrink:0; font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;}
+  .interval-bar-track{flex:1; height:14px; background:var(--card2); border:1px solid var(--border); border-radius:7px; overflow:hidden;}
+  .interval-bar-fill{height:100%; width:0%; transition:width 0.35s linear; border-radius:7px;}
+  .interval-bar-fill.rest{background:var(--blue);}
+  .interval-bar-fill.work{background:var(--accent2);}
+  .history-item{border-bottom:1px solid var(--border); padding:10px 0;}
+  .history-item:last-child{border-bottom:none;}
+  .history-head{display:flex; justify-content:space-between; align-items:center; cursor:pointer;}
+  .history-head .date{font-weight:700;}
+  .history-head .meta{color:var(--muted); font-size:13px;}
+  .history-detail{display:none; margin-top:8px; font-size:13px; color:var(--muted);}
+  .history-detail.open{display:block;}
+  .history-detail table{width:100%; border-collapse:collapse; margin-top:6px;}
+  .history-detail td, .history-detail th{padding:4px 2px; text-align:center; border-bottom:1px solid var(--border); font-size:12px;}
+  .history-detail th{color:var(--muted); font-weight:600;}
+  .history-detail td:first-child, .history-detail th:first-child{text-align:left;}
+  .flex-between{display:flex; justify-content:space-between; align-items:center;}
+  .muted{color:var(--muted);}
+  .top-status{display:flex; justify-content:space-between; align-items:center; margin-top:10px;}
+  footer.note{text-align:center; color:var(--muted); font-size:12px; padding:20px 16px 40px;}
+</style>
+</head>
+<body>
+
+<header class="app">
+  <h1>🏋️ AMRAP Circuit Tracker</h1>
+  <nav class="tabs">
+    <button data-tab="workout" class="active">Workout</button>
+    <button data-tab="setup">Setup</button>
+    <button data-tab="history">History</button>
+    <button data-tab="profile">Profile</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- WORKOUT SCREEN -->
+  <section id="tab-workout" class="screen active">
+
+    <div class="card" id="caloriesTodayCard">
+      <h2>Today's Est. Calories</h2>
+      <div class="center">
+        <div class="clock" id="caloriesTodayValue" style="font-size:40px;">--</div>
+      </div>
+      <div class="day-nav-label" id="caloriesTodayBreakdown">Add your stats in the Profile tab to see this.</div>
+    </div>
+
+    <div class="card timer-big">
+      <div class="clock" id="clockDisplay">00:00</div>
+      <div class="label" id="clockLabel">Elapsed &middot; Cap <span id="capLabel">20</span>:00</div>
+      <div class="top-status">
+        <span class="round-badge" id="roundNumBadge">Round <span id="roundNum">1</span></span>
+        <span id="capWarning" class="cap-warn muted" style="font-size:13px;"></span>
+      </div>
+    </div>
+
+    <div class="card" id="quickTimerCard">
+      <h2>Quick Timer</h2>
+      <div class="center">
+        <input type="text" inputmode="numeric" class="clock" id="quickTimerClock" value="1:00" style="font-size:40px; width:100%; text-align:center;">
+      </div>
+      <input type="range" id="quickTimerDuration" min="5" max="60" step="1" value="60" style="width:100%; margin-top:6px;">
+      <div class="day-nav-label" id="quickTimerDurationLabel" style="margin-top:2px;">Duration: 60s</div>
+      <div class="row2" style="margin-top:10px;">
+        <button class="primary" id="quickTimerStartBtn" style="margin-top:0;">▶ Start</button>
+        <button class="secondary" id="quickTimerResetBtn" style="margin-top:0;">↺ Reset</button>
+      </div>
+      <div class="row2" style="margin-top:8px; align-items:center;">
+        <select id="quickTimerSound"></select>
+        <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
+      </div>
+    </div>
+
+    <div id="idleBlock" class="card">
+      <select class="day-banner" id="workoutDayBanner"></select>
+      <div class="row2">
+        <button class="secondary" id="prevDayBtnWorkout" style="margin-top:0;">◀ Prev Day</button>
+        <button class="secondary" id="nextDayBtnWorkout" style="margin-top:0;">Next Day ▶</button>
+      </div>
+      <div class="idle-hint">Set up today's exercises in the <b>Setup</b> tab, choose a time cap, then start.</div>
+      <div class="row2" id="startRow">
+        <select id="timeCapSelect">
+          <option value="15">15 min</option>
+          <option value="20" selected>20 min</option>
+          <option value="25">25 min</option>
+          <option value="30">30 min</option>
+        </select>
+        <button class="primary" id="startBtn" style="margin-top:0;">Start Workout</button>
+      </div>
+      <div class="idle-hint" id="fixedDurationNote" style="display:none;"></div>
+      <div class="idle-hint" id="restDayMsg" style="display:none;">Rest day &mdash; no exercises scheduled. Enjoy the recovery! 🛌</div>
+
+      <h2 id="idlePreviewHeading" style="margin-top:16px;">Today's Exercises</h2>
+      <div class="col-head" id="idlePreviewColHead" style="grid-template-columns:1fr 60px 60px;"><div>Exercise</div><div>Reps</div><div>Weight</div></div>
+      <div id="idlePreviewList"></div>
+      <p class="muted" style="font-size:12px; margin:6px 0 0;">Reps and weight here update instantly and carry over to Setup. To change which exercises are used, edit them on the <b>Setup</b> tab.</p>
+    </div>
+
+    <div id="prepBlock" class="card" style="display:none; text-align:center;">
+      <div class="label" style="font-size:14px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px;">Get Ready!</div>
+      <div class="clock" id="prepCountdownClock" style="font-size:64px; font-weight:800; margin:6px 0;">30</div>
+      <div class="row2">
+        <button class="secondary" id="prepSkipBtn" style="margin-top:0;">⏭ Skip</button>
+        <button class="secondary danger" id="prepCancelBtn" style="margin-top:0;">✕ Cancel</button>
+      </div>
+    </div>
+
+    <div id="activeBlock" style="display:none;">
+      <div style="text-align:center; margin-bottom:10px;">
+        <span class="round-badge" id="roundsCompletedBadge">✅ Rounds Completed: 0</span>
+      </div>
+      <div class="card" id="roundCard">
+        <div class="col-head"><div>Exercise</div><div>Weight</div><div>Reps</div></div>
+        <div id="roundExerciseList"></div>
+      </div>
+      <div class="card" id="intervalCard" style="display:none; text-align:center;">
+        <p class="muted" id="intervalExerciseName" style="margin:0 0 4px; font-size:14px;"></p>
+        <div class="label" id="intervalPhaseLabel" style="font-size:16px; font-weight:800; letter-spacing:1px; color:var(--accent2);">REST</div>
+        <div class="clock" id="intervalCountdown" style="font-size:48px; font-weight:800; margin:4px 0;">1:00</div>
+        <div class="day-nav-label" id="intervalSetLabel">Set 1 of 10</div>
+      </div>
+      <div class="card" id="intervalTimelineCard" style="display:none;">
+        <h2>All Sets</h2>
+        <div id="intervalTimeline"></div>
+      </div>
+      <button class="primary" id="completeRoundBtn">✅ Complete Round</button>
+      <button class="secondary" id="finishWorkoutBtn">🏁 Finish Workout</button>
+    </div>
+
+    <div id="finishIntensityBlock" class="card" style="display:none; text-align:center;">
+      <h2>How did that feel?</h2>
+      <p class="muted" style="font-size:13px; margin-top:0;">Used for a rough calorie estimate &mdash; pick whichever's closest.</p>
+      <div class="row2">
+        <button class="secondary intensityBtn" data-intensity="easy" style="margin-top:0;">😌 Easy</button>
+        <button class="secondary intensityBtn" data-intensity="moderate" style="margin-top:0;">💪 Moderate</button>
+        <button class="secondary intensityBtn" data-intensity="hard" style="margin-top:0;">🔥 Hard</button>
+      </div>
+      <button class="secondary danger" id="cancelFinishBtn" style="margin-top:10px;">Cancel</button>
+    </div>
+
+    <div id="pausedControls" style="display:none;">
+      <button class="secondary" id="pauseWorkoutBtn">⏸ Pause Workout</button>
+      <button class="secondary danger" id="cancelWorkoutBtn">Cancel Workout (discard)</button>
+    </div>
+  </section>
+
+  <!-- SETUP SCREEN -->
+  <section id="tab-setup" class="screen">
+    <div class="card">
+      <h2>Time Cap Default</h2>
+      <select id="defaultCapSelect" style="width:100%;">
+        <option value="15">15 min</option>
+        <option value="20" selected>20 min</option>
+        <option value="25">25 min</option>
+        <option value="30">30 min</option>
+      </select>
+    </div>
+
+    <select class="day-banner" id="dayBanner"></select>
+
+    <div class="row2">
+      <button class="secondary" id="prevDayBtn" style="margin-top:0;">◀ Prev Day</button>
+      <button class="secondary" id="nextDayBtn" style="margin-top:0;">Next Day ▶</button>
+    </div>
+    <div class="day-nav-label" id="dayNavLabel" style="margin-bottom:12px;">Day 1 of 7</div>
+
+    <div class="card" id="quickFillCard">
+      <h2>Quick Fill</h2>
+      <div class="row2">
+        <button class="secondary" id="autoFillBtn" style="margin-top:0;">🔀 Auto-Fill</button>
+        <button class="secondary" id="lockToggleBtn" style="margin-top:0;">🔓 Unlocked (tap to lock)</button>
+      </div>
+      <p class="muted" style="font-size:12px; margin:8px 0 0;" id="quickFillNote">Auto-Fill randomly suggests exercises for this day. Once you land on a set you like, tap Lock to freeze the names so they can't be edited or reshuffled.</p>
+    </div>
+
+    <div class="col-head" id="setupColHead" style="grid-template-columns:1fr; padding:0 14px;"><div>Exercise</div></div>
+    <div id="supersetSetupList"></div>
+    <p class="muted" style="font-size:12px; margin:4px 0 0;">Changes save instantly &mdash; no need to hit save. Set rep targets and starting weight on the <b>Workout</b> tab, under Today's Exercises.</p>
+
+    <p class="muted center" style="font-size:13px; margin-top:14px;">On superset days: all exercises back to back, no rest between them, 60s rest after the last one, then repeat. On cardio days: work the one exercise, rest 60s, repeat.</p>
+
+    <div class="card">
+      <h2>Reset</h2>
+      <button class="secondary danger" id="resetWeightsBtn" style="margin-top:0;">🧹 Clear Starting Weights (this day)</button>
+      <p class="muted" style="font-size:12px; margin:8px 0 0;">Clears the starting weight field back to blank for every exercise on the day currently shown above. Exercise names and rep targets are untouched.</p>
+      <button class="secondary danger" id="resetRepsBtn" style="margin-top:12px;">🔟 Reset Starting Reps to 10 (this day)</button>
+      <p class="muted" style="font-size:12px; margin:8px 0 0;">Resets the rep target back to 10 for every exercise on the day currently shown above. Exercise names and starting weight are untouched.</p>
+      <button class="secondary danger" id="resetSessionBtn" style="margin-top:12px;">🗑 Cancel Stuck Workout Session</button>
+      <p class="muted" style="font-size:12px; margin:8px 0 0;">If opening the app drops you straight into an in-progress round with old weights already filled in (instead of the Start Workout screen), tap this to discard that leftover session and reset.</p>
+    </div>
+  </section>
+
+  <!-- HISTORY SCREEN -->
+  <section id="tab-history" class="screen">
+    <div class="card">
+      <div class="flex-between">
+        <h2 style="margin:0;">Past Workouts</h2>
+        <button class="small danger" id="clearHistoryBtn">Clear All</button>
+      </div>
+    </div>
+    <div id="historyList"></div>
+
+    <div class="card" id="manualHistoryCard">
+      <div class="flex-between" id="manualHistoryToggle" style="cursor:pointer;">
+        <h2 style="margin:0;">Log a Past Workout</h2>
+        <span class="muted" id="manualHistoryChevron" style="font-size:13px;">▸ Show</span>
+      </div>
+      <div id="manualHistoryFields" style="display:none;">
+        <p class="muted" style="font-size:12px; margin:10px 0 0;">Already did a workout without the app running? Add it here — it'll use whatever exercises, reps, and weight are currently set for that day on the Setup tab.</p>
+        <div class="exercise-row">
+          <div style="flex:1; font-size:15px;">Day</div>
+          <select id="manualDaySelect" style="width:190px;"></select>
+        </div>
+        <div class="exercise-row">
+          <div style="flex:1; font-size:15px;">Date</div>
+          <input type="date" id="manualDateInput" style="width:190px;">
+        </div>
+        <div class="exercise-row">
+          <div style="flex:1; font-size:15px;">Duration (min)</div>
+          <input type="number" id="manualDurationInput" min="1" max="240" placeholder="e.g. 34" style="width:90px;">
+        </div>
+        <div class="exercise-row" id="manualRoundsRow">
+          <div style="flex:1; font-size:15px;" id="manualRoundsLabel">Rounds Completed</div>
+          <input type="number" id="manualRoundsInput" min="1" max="50" placeholder="e.g. 6" style="width:90px;">
+        </div>
+        <div class="exercise-row">
+          <div style="flex:1; font-size:15px;">Intensity</div>
+          <select id="manualIntensitySelect" style="width:190px;">
+            <option value="easy">😌 Easy</option>
+            <option value="moderate" selected>💪 Moderate</option>
+            <option value="hard">🔥 Hard</option>
+          </select>
+        </div>
+        <button class="primary" id="manualAddBtn" style="margin-top:10px;">➕ Add to History</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROFILE SCREEN -->
+  <section id="tab-profile" class="screen">
+    <div class="card">
+      <h2>Your Stats</h2>
+      <p class="muted" style="font-size:12px; margin-top:0;">Used only for rough calorie estimates &mdash; saved on this device, never sent anywhere. Everything auto-saves.</p>
+
+      <div class="exercise-row">
+        <div style="flex:1; font-size:15px;">Age</div>
+        <input type="number" id="profileAge" placeholder="yrs" min="1" max="120" style="width:90px;">
+      </div>
+      <div class="exercise-row">
+        <div style="flex:1; font-size:15px;">Sex</div>
+        <select id="profileSex" style="width:150px;">
+          <option value="">Select&hellip;</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+        </select>
+      </div>
+      <div class="exercise-row">
+        <div style="flex:1; font-size:15px;">Height</div>
+        <div class="target-fields">
+          <input type="number" id="profileHeightFt" placeholder="ft" min="0" max="8">
+          <input type="number" id="profileHeightIn" placeholder="in" min="0" max="11">
+        </div>
+      </div>
+      <div class="exercise-row">
+        <div style="flex:1; font-size:15px;">Weight</div>
+        <input type="number" id="profileWeight" placeholder="lb" min="0" style="width:90px;">
+      </div>
+
+      <p class="day-nav-label" id="profileBMRDisplay" style="margin-top:12px;">Fill in all fields to see your estimated BMR.</p>
+    </div>
+
+    <div class="card" id="exportCard">
+      <h2>Export Backup</h2>
+      <p class="muted" style="font-size:12px; margin-top:0;">Downloads everything &mdash; your Setup (exercises, reps, weights, Day 6 timing), Profile stats, and full workout History &mdash; as one file. Worth keeping somewhere safe in case you switch phones or ever clear Safari's data.</p>
+      <button class="secondary" id="exportBackupBtn" style="margin-top:0;">📤 Export Backup</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.</footer>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_CONFIG = "amrap_config_v1";
+  var STORAGE_HISTORY = "amrap_history_v1";
+  var STORAGE_SESSION = "amrap_active_session_v1";
+
+  // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
+  var PUSH_EXERCISES = [
+    "Push-up", "Incline Push-up", "Diamond Push-up", "Pike Push-up",
+    "DB Shoulder Press", "DB Chest Press", "DB Floor Press", "Arnold Press",
+    "Tricep Dip", "Overhead Tricep Extension", "DB Squat Press", "Landmine Press"
+  ];
+  var PULL_EXERCISES = [
+    "DB Row", "Bent-over Row", "Inverted Row", "Renegade Row",
+    "Single-arm Row", "DB Pullover", "Face Pull", "Band Pull-apart",
+    "Reverse Fly", "Plank Row", "Chin-up", "Lat Pulldown"
+  ];
+  var LEGS_EXERCISES = [
+    "Goblet Squat", "Reverse Lunge", "Bulgarian Split Squat", "Romanian Deadlift",
+    "Step-up", "Kettlebell Swing", "Walking Lunge", "Sumo Squat",
+    "Single-leg RDL", "Curtsy Lunge", "Box Jump", "Wall Sit"
+  ];
+  var SHOULDER_EXERCISES = [
+    "DB Shoulder Press", "Lateral Raise", "Front Raise", "Arnold Press",
+    "Upright Row", "Rear Delt Fly", "Landmine Press", "Cuban Press",
+    "Bottoms-up Press", "Y-Raise", "Plank Shoulder Tap", "Pike Push-up"
+  ];
+  var BICEP_EXERCISES = [
+    "Bicep Curl", "Hammer Curl", "Concentration Curl", "DB Preacher Curl",
+    "Cross-body Curl", "Reverse Curl", "Zottman Curl", "21s Curl"
+  ];
+  var TRICEP_EXERCISES = [
+    "Tricep Dip", "Overhead Tricep Extension", "Skull Crusher", "Close-grip Push-up",
+    "Tricep Kickback", "DB Floor Press", "Diamond Push-up", "Bench Dip"
+  ];
+  var AEROBIC_EXERCISES = [
+    "Rowing Machine", "Stationary Bike", "Incline Treadmill Walk", "Elliptical",
+    "Jump Rope (steady pace)", "Stair Climber", "Swimming", "Brisk Walk/Jog"
+  ];
+  var ANAEROBIC_EXERCISES = [
+    "Assault Bike Sprints", "Battle Ropes", "Box Jumps", "Burpees",
+    "Ski Erg Sprints", "Sled Push", "Rowing Sprints", "Jump Rope (fast intervals)"
+  ];
+
+  // ---------- Day metadata (structure/theme; not user data) ----------
+  // "met" = a rough baseline MET (metabolic equivalent) value used only for the optional
+  // calorie estimate. Bigger muscle groups / more compound movement = higher MET.
+  var DAY_META = {
+    1: { label:"Chest & Back",     type:"supersets", fillMode:"pair",   poolA:PUSH_EXERCISES,    poolB:PULL_EXERCISES,     fillLabel:"Push/Pull",       met:8 },
+    2: { label:"Aerobic Cardio",   type:"timed",      fillMode:"single", pool:AEROBIC_EXERCISES,                          fillLabel:"Cardio Exercise", met:7 },
+    3: { label:"Legs & Shoulders", type:"supersets", fillMode:"pair",   poolA:LEGS_EXERCISES,    poolB:SHOULDER_EXERCISES, fillLabel:"Legs/Shoulders",  met:8 },
+    4: { label:"Rest",             type:"rest" },
+    5: { label:"Arms",             type:"supersets", fillMode:"pair",   poolA:BICEP_EXERCISES,   poolB:TRICEP_EXERCISES,   fillLabel:"Arms",            met:8 },
+    6: { label:"Anaerobic Cardio", type:"interval",   fillMode:"single", pool:ANAEROBIC_EXERCISES,                        fillLabel:"Cardio Exercise", met:10, sets:10, workSec:60, restSec:60, startPhase:"rest" },
+    7: { label:"Rest",             type:"rest" }
+  };
+
+  var INTENSITY_MULT = { easy:0.85, moderate:1.0, hard:1.15 };
+
+  function mkEx(name){ return { name:name, reps:10, weight:"" }; }
+
+  // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
+  function getWeightKg(){
+    var p = config.profile;
+    if(!p || !p.weightLb) return null;
+    return p.weightLb * 0.453592;
+  }
+
+  function hasCompleteProfile(){
+    var p = config.profile;
+    return !!(p && p.weightLb && p.age && p.sex && (p.heightFt || p.heightIn));
+  }
+
+  // Mifflin-St Jeor equation
+  function computeBMR(){
+    if(!hasCompleteProfile()) return null;
+    var p = config.profile;
+    var weightKg = getWeightKg();
+    var totalInches = (p.heightFt || 0) * 12 + (p.heightIn || 0);
+    var heightCm = totalInches * 2.54;
+    var sexConst = p.sex === "male" ? 5 : -161;
+    return 10 * weightKg + 6.25 * heightCm - 5 * p.age + sexConst;
+  }
+
+  // Compares this session's pace (rounds/min) to your own average pace for this same day,
+  // using only prior history so a session can't be compared against itself. Clamped so one
+  // unusually fast/slow session can't swing the estimate too far. No prior data = neutral (1x).
+  function estimatePaceMultiplier(day, roundsCompleted, elapsedSec){
+    if(!roundsCompleted || !elapsedSec) return 1;
+    var priorSessions = loadHistory().filter(function(r){
+      return r.day === day && r.roundsCompleted > 0 && r.elapsedSec > 0;
+    });
+    if(priorSessions.length === 0) return 1;
+    var avgPace = priorSessions.reduce(function(sum, r){
+      return sum + (r.roundsCompleted / (r.elapsedSec/60));
+    }, 0) / priorSessions.length;
+    if(!avgPace) return 1;
+    var currentPace = roundsCompleted / (elapsedSec/60);
+    var ratio = currentPace / avgPace;
+    return Math.max(0.85, Math.min(1.2, ratio));
+  }
+
+  function estimateWorkoutCalories(day, elapsedSec, intensity, roundsCompleted){
+    var meta = DAY_META[day];
+    var weightKg = getWeightKg();
+    if(!meta || !meta.met || !weightKg) return null;
+    var mult = INTENSITY_MULT[intensity] || 1;
+    var paceMult = estimatePaceMultiplier(day, roundsCompleted, elapsedSec);
+    var hours = elapsedSec / 3600;
+    return Math.round(meta.met * mult * paceMult * weightKg * hours);
+  }
+
+  function buildDefaultConfig(){
+    return {
+      currentDay: 1,
+      defaultCapMin: 20,
+      timerSound: "beep",
+      timerDuration: 60,
+      profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null },
+      days: {
+        1: { locked:false, supersets: [
+              { a:mkEx("Push-up"),        b:mkEx("DB Row") },
+              { a:mkEx("DB Chest Press"), b:mkEx("Bent-over Row") },
+              { a:mkEx("Incline Push-up"),b:mkEx("Inverted Row") },
+              { a:mkEx("DB Floor Press"), b:mkEx("Renegade Row") }
+            ]},
+        2: { locked:false, exercise: mkEx("Rowing Machine") },
+        3: { locked:false, supersets: [
+              { a:mkEx("Goblet Squat"),     b:mkEx("DB Shoulder Press") },
+              { a:mkEx("Reverse Lunge"),    b:mkEx("Lateral Raise") },
+              { a:mkEx("Romanian Deadlift"),b:mkEx("Arnold Press") },
+              { a:mkEx("Walking Lunge"),    b:mkEx("Front Raise") }
+            ]},
+        4: {},
+        5: { locked:false, supersets: [
+              { a:mkEx("Bicep Curl"),          b:mkEx("Tricep Dip") },
+              { a:mkEx("Hammer Curl"),         b:mkEx("Overhead Tricep Extension") },
+              { a:mkEx("DB Preacher Curl"),    b:mkEx("Skull Crusher") },
+              { a:mkEx("Concentration Curl"),  b:mkEx("Close-grip Push-up") }
+            ]},
+        6: { locked:false, exercise: mkEx("Assault Bike Sprints"), workSec: 60, restSec: 60 },
+        7: {}
+      }
+    };
+  }
+
+  function loadConfig(){
+    var fresh = buildDefaultConfig();
+    try{
+      var raw = localStorage.getItem(STORAGE_CONFIG);
+      if(!raw) return fresh;
+      var cfg = JSON.parse(raw);
+      if(!cfg.days){
+        // migrate from earlier single-day schema
+        if(Array.isArray(cfg.supersets)){
+          fresh.days[1] = { locked: !!cfg.locked, supersets: cfg.supersets.map(function(ss){
+            return {
+              a:{ name:(ss.a&&ss.a.name)||"Push-up", reps:(ss.a&&ss.a.reps)||10, weight:(ss.a&&ss.a.weight)||"" },
+              b:{ name:(ss.b&&ss.b.name)||"DB Row",  reps:(ss.b&&ss.b.reps)||10, weight:(ss.b&&ss.b.weight)||"" }
+            };
+          })};
+        }
+        fresh.defaultCapMin = cfg.defaultCapMin || 20;
+        fresh.currentDay = 1;
+        return fresh;
+      }
+      // basic sanity fill for any missing days
+      for(var d = 1; d <= 7; d++){
+        if(!cfg.days[d]) cfg.days[d] = fresh.days[d];
+        // backfill custom interval timing for any interval-type day saved before this existed
+        if(DAY_META[d] && DAY_META[d].type === "interval"){
+          if(!(cfg.days[d].restSec > 0)) cfg.days[d].restSec = DAY_META[d].restSec || 60;
+          if(!(cfg.days[d].workSec > 0)) cfg.days[d].workSec = DAY_META[d].workSec || 60;
+        }
+      }
+      if(!cfg.currentDay) cfg.currentDay = 1;
+      if(!cfg.defaultCapMin) cfg.defaultCapMin = 20;
+      if(!cfg.timerSound) cfg.timerSound = "beep";
+      if(!cfg.timerDuration) cfg.timerDuration = 60;
+      if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null };
+      return cfg;
+    }catch(e){ return fresh; }
+  }
+  // Wrapped defensively: some restricted/embedded browser contexts (e.g. iOS Quick Look
+  // file previews) block localStorage entirely and throw on write. Without a try/catch
+  // here, that exception would silently abort whatever button handler triggered the save
+  // — including ones with UI work left to do afterward, like starting a workout.
+  function saveConfig(cfg){ try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(cfg)); }catch(e){} cloudPush(cfg, undefined); }
+
+  function loadHistory(){
+    try{
+      var raw = localStorage.getItem(STORAGE_HISTORY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
+  }
+  function saveHistory(h){ try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(h)); }catch(e){} cloudPush(undefined, h); }
+
+  var config = loadConfig();
+
+  // ---------- Cloud sync (Firebase) ----------
+  // Backs up Setup + History to Firestore so data survives iOS wiping local browser
+  // storage for home-screen web apps. Each device signs in anonymously and gets its
+  // own Firebase user, so your data and a friend's on the same URL stay separate.
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBkBmJ9OSDu3ei3aiwCL9V4fRCFu0unQyI",
+    authDomain: "amrap-gym-tracker.firebaseapp.com",
+    projectId: "amrap-gym-tracker",
+    storageBucket: "amrap-gym-tracker.firebasestorage.app",
+    messagingSenderId: "558716383162",
+    appId: "1:558716383162:web:757c3639e6d254f8d67783",
+    measurementId: "G-X9QERVZTCM"
+  };
+  var cloudDb = null;
+  var cloudUid = null;
+
+  function cloudPush(cfgArg, histArg){
+    if(!cloudDb || !cloudUid) return;
+    try{
+      cloudDb.collection("users").doc(cloudUid).set({
+        config: cfgArg !== undefined ? cfgArg : config,
+        history: histArg !== undefined ? histArg : loadHistory(),
+        updatedAt: Date.now()
+      }).catch(function(){});
+    }catch(e){}
+  }
+
+  function cloudSyncOnLoad(){
+    if(typeof firebase === "undefined") return;
+    try{
+      if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+      firebase.auth().signInAnonymously().catch(function(){});
+      firebase.auth().onAuthStateChanged(function(user){
+        if(!user) return;
+        cloudUid = user.uid;
+        cloudDb = firebase.firestore();
+        cloudDb.collection("users").doc(cloudUid).get().then(function(doc){
+          if(doc.exists){
+            var data = doc.data();
+            if(!data || !data.config) return;
+            var hasActiveSession = false;
+            try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
+            var differs = (JSON.stringify(data.config) !== JSON.stringify(config)) ||
+                          (JSON.stringify(data.history || []) !== JSON.stringify(loadHistory()));
+            if(differs && !hasActiveSession){
+              saveConfig(data.config);
+              saveHistory(data.history || []);
+              location.reload();
+            }
+          } else {
+            cloudPush();
+          }
+        }).catch(function(){});
+      });
+    }catch(e){}
+  }
+  cloudSyncOnLoad();
+
+  // ---------- Tabs ----------
+  var tabButtons = document.querySelectorAll("nav.tabs button");
+  tabButtons.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      tabButtons.forEach(function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.querySelectorAll(".screen").forEach(function(s){ s.classList.remove("active"); });
+      document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+      if(btn.dataset.tab === "history") renderHistory();
+      if(btn.dataset.tab === "setup") renderSetup();
+      if(btn.dataset.tab === "workout") updateWorkoutIdleUI();
+      if(btn.dataset.tab === "profile") renderProfile();
+    });
+  });
+
+  function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+  function shuffle(arr){
+    var a = arr.slice();
+    for(var i = a.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+    }
+    return a;
+  }
+
+  // ---------- Setup screen ----------
+  function renderSetup(){
+    document.getElementById("defaultCapSelect").value = String(config.defaultCapMin);
+
+    var day = config.currentDay;
+    var meta = DAY_META[day];
+    var dayData = config.days[day] || (config.days[day] = {});
+
+    document.getElementById("dayBanner").value = String(day);
+    document.getElementById("dayNavLabel").textContent = "Day " + day + " of 7";
+
+    var resetWeightsBtn = document.getElementById("resetWeightsBtn");
+    var resetRepsBtn = document.getElementById("resetRepsBtn");
+    if(meta.type === "rest"){
+      resetWeightsBtn.textContent = "🧹 Clear Starting Weights (Day " + day + ")";
+      resetWeightsBtn.disabled = true;
+      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (Day " + day + ")";
+      resetRepsBtn.disabled = true;
+    } else {
+      resetWeightsBtn.textContent = "🧹 Clear Starting Weights (Day " + day + ": " + meta.label + ")";
+      resetWeightsBtn.disabled = false;
+      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (Day " + day + ": " + meta.label + ")";
+      resetRepsBtn.disabled = false;
+    }
+
+    var quickFillCard = document.getElementById("quickFillCard");
+    var colHead = document.getElementById("setupColHead");
+    var list = document.getElementById("supersetSetupList");
+    list.innerHTML = "";
+
+    if(meta.type === "rest"){
+      quickFillCard.style.display = "none";
+      colHead.style.display = "none";
+      list.innerHTML = '<div class="card idle-hint">Rest day &mdash; no exercises scheduled. Enjoy the recovery! 🛌</div>';
+      return;
+    }
+
+    quickFillCard.style.display = "";
+    colHead.style.display = "";
+
+    var locked = !!dayData.locked;
+    var dis = locked ? "disabled" : "";
+
+    if(meta.type === "supersets"){
+      dayData.supersets.forEach(function(ss, idx){
+        var card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML =
+          '<p class="superset-title">Superset ' + (idx+1) + '</p>' +
+          exerciseFieldHtml(idx, "a", ss.a, dis) +
+          exerciseFieldHtml(idx, "b", ss.b, dis);
+        list.appendChild(card);
+      });
+    } else if(meta.type === "single" || meta.type === "timed" || meta.type === "interval"){
+      var card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = exerciseFieldHtml(0, "solo", dayData.exercise, dis);
+      list.appendChild(card);
+
+      if(meta.type === "interval"){
+        var timing = getIntervalTiming(day);
+        var timingCard = document.createElement("div");
+        timingCard.className = "card";
+        timingCard.innerHTML =
+          '<p class="superset-title" style="margin-top:0;">Interval Timing</p>' +
+          '<div class="exercise-row">' +
+            '<div style="flex:1; font-size:15px;">Rest (seconds)</div>' +
+            '<input type="number" id="intervalRestSecInput" value="'+timing.restSec+'" min="5" max="600" style="width:90px;">' +
+          '</div>' +
+          '<div class="exercise-row">' +
+            '<div style="flex:1; font-size:15px;">Work (seconds)</div>' +
+            '<input type="number" id="intervalWorkSecInput" value="'+timing.workSec+'" min="5" max="600" style="width:90px;">' +
+          '</div>' +
+          '<p class="muted" style="font-size:12px; margin:6px 0 0;">Rounds auto-calculate from these times to fill your chosen time cap on the Workout tab.</p>';
+        list.appendChild(timingCard);
+
+        document.getElementById("intervalRestSecInput").addEventListener("input", function(){
+          var val = this.value === "" ? "" : parseInt(this.value, 10);
+          dayData.restSec = (!isNaN(val) && val > 0) ? val : "";
+          saveConfig(config);
+          updateFixedDurationNote();
+        });
+        document.getElementById("intervalWorkSecInput").addEventListener("input", function(){
+          var val = this.value === "" ? "" : parseInt(this.value, 10);
+          dayData.workSec = (!isNaN(val) && val > 0) ? val : "";
+          saveConfig(config);
+          updateFixedDurationNote();
+        });
+      }
+    }
+
+    // live auto-save: every keystroke writes straight into config, no Save button needed
+    // (scoped to inputs with a data-field, so the interval timing inputs above — which
+    // manage their own dayData.restSec/workSec — aren't double-handled here)
+    list.querySelectorAll("input[data-field]").forEach(function(inp){
+      inp.addEventListener("input", function(){
+        var field = inp.dataset.field, slot = inp.dataset.slot;
+        var val;
+        if(inp.type === "number"){
+          val = inp.value === "" ? (field === "weight" ? "" : 10) : parseInt(inp.value, 10);
+          if(isNaN(val)) val = (field === "weight") ? "" : 10;
+        } else {
+          val = inp.value;
+        }
+        if(meta.type === "supersets"){
+          var idx = parseInt(inp.dataset.ss, 10);
+          dayData.supersets[idx][slot][field] = val;
+        } else {
+          dayData.exercise[field] = val;
+        }
+        saveConfig(config);
+      });
+    });
+
+    var lockBtn = document.getElementById("lockToggleBtn");
+    var autoFillBtn = document.getElementById("autoFillBtn");
+    autoFillBtn.textContent = "🔀 Auto-Fill " + meta.fillLabel;
+    if(locked){
+      lockBtn.textContent = "🔒 Locked (tap to unlock)";
+      lockBtn.classList.add("locked");
+    } else {
+      lockBtn.textContent = "🔓 Unlocked (tap to lock)";
+      lockBtn.classList.remove("locked");
+    }
+    autoFillBtn.disabled = locked;
+  }
+
+  function exerciseFieldHtml(idx, slot, ex, dis){
+    // "dis" (locked state) disables the exercise name. Rep targets and starting weight are
+    // set on the Workout tab instead, so Setup only manages which exercises are used.
+    return '<div class="exercise-row">' +
+      '<input type="text" '+dis+' data-ss="'+idx+'" data-slot="'+slot+'" data-field="name" value="'+escapeHtml(ex.name)+'" placeholder="Exercise name">' +
+      '</div>';
+  }
+
+  document.getElementById("lockToggleBtn").addEventListener("click", function(){
+    var dayData = config.days[config.currentDay];
+    dayData.locked = !dayData.locked;
+    saveConfig(config);
+    renderSetup();
+  });
+
+  document.getElementById("autoFillBtn").addEventListener("click", function(){
+    var day = config.currentDay;
+    var meta = DAY_META[day];
+    var dayData = config.days[day];
+    if(dayData.locked){
+      alert("Exercises are locked. Tap \"Locked (tap to unlock)\" first to reshuffle.");
+      return;
+    }
+    if(meta.fillMode === "pair"){
+      var picksA = shuffle(meta.poolA).slice(0, 4);
+      var picksB = shuffle(meta.poolB).slice(0, 4);
+      dayData.supersets.forEach(function(ss, i){
+        ss.a.name = picksA[i];
+        ss.b.name = picksB[i];
+      });
+    } else if(meta.fillMode === "single"){
+      dayData.exercise.name = shuffle(meta.pool)[0];
+    }
+    saveConfig(config);
+    renderSetup();
+  });
+
+  document.getElementById("defaultCapSelect").addEventListener("change", function(e){
+    config.defaultCapMin = parseInt(e.target.value, 10);
+    saveConfig(config);
+    document.getElementById("timeCapSelect").value = String(config.defaultCapMin);
+    document.getElementById("capLabel").textContent = config.defaultCapMin;
+  });
+
+  document.getElementById("resetWeightsBtn").addEventListener("click", function(){
+    var day = config.currentDay;
+    var dayLabel = DAY_META[day] ? DAY_META[day].label : ("Day " + day);
+    if(!confirm("Clear the starting weight for every exercise on Day " + day + " (" + dayLabel + ") back to blank?")) return;
+    var dd = config.days[day];
+    if(dd){
+      if(dd.supersets){
+        dd.supersets.forEach(function(ss){
+          ss.a.weight = "";
+          ss.b.weight = "";
+        });
+      }
+      if(dd.exercise){
+        dd.exercise.weight = "";
+      }
+    }
+    saveConfig(config);
+    renderSetup();
+    updateWorkoutIdleUI();
+    alert("Starting weights cleared for Day " + day + ".");
+  });
+
+  document.getElementById("resetRepsBtn").addEventListener("click", function(){
+    var day = config.currentDay;
+    var dayLabel = DAY_META[day] ? DAY_META[day].label : ("Day " + day);
+    if(!confirm("Reset the starting rep target back to 10 for every exercise on Day " + day + " (" + dayLabel + ")?")) return;
+    var dd = config.days[day];
+    if(dd){
+      if(dd.supersets){
+        dd.supersets.forEach(function(ss){
+          ss.a.reps = 10;
+          ss.b.reps = 10;
+        });
+      }
+      if(dd.exercise){
+        dd.exercise.reps = 10;
+      }
+    }
+    saveConfig(config);
+    renderSetup();
+    updateWorkoutIdleUI();
+    alert("Starting reps reset to 10 for Day " + day + ".");
+  });
+
+  document.getElementById("resetSessionBtn").addEventListener("click", function(){
+    if(!confirm("Discard any in-progress workout session and return to the Start Workout screen?")) return;
+    clearInterval(tickInterval);
+    session = null;
+    persistSession();
+    resetToIdle();
+    alert("Cleared.");
+  });
+
+  document.getElementById("prevDayBtn").addEventListener("click", function(){
+    config.currentDay = config.currentDay === 1 ? 7 : config.currentDay - 1;
+    saveConfig(config);
+    renderSetup();
+  });
+  document.getElementById("nextDayBtn").addEventListener("click", function(){
+    config.currentDay = config.currentDay === 7 ? 1 : config.currentDay + 1;
+    saveConfig(config);
+    renderSetup();
+  });
+
+  function populateDaySelect(id){
+    var sel = document.getElementById(id);
+    sel.innerHTML = "";
+    for(var d = 1; d <= 7; d++){
+      var opt = document.createElement("option");
+      opt.value = String(d);
+      opt.textContent = "Day " + d + ": " + DAY_META[d].label;
+      sel.appendChild(opt);
+    }
+  }
+  document.getElementById("dayBanner").addEventListener("change", function(e){
+    config.currentDay = parseInt(e.target.value, 10);
+    saveConfig(config);
+    renderSetup();
+  });
+  document.getElementById("workoutDayBanner").addEventListener("change", function(e){
+    config.currentDay = parseInt(e.target.value, 10);
+    saveConfig(config);
+    updateWorkoutIdleUI();
+  });
+
+  // ---------- Workout state ----------
+  var session = null; // active session object
+  var tickInterval = null;
+
+  function getElapsedMs(){
+    if(!session) return 0;
+    var now = session.paused ? session.pausedAt : Date.now();
+    return now - session.startedAt - (session.totalPausedMs || 0);
+  }
+
+  function flattenFromDayData(dayData, type){
+    var list = [];
+    if(type === "supersets"){
+      dayData.supersets.forEach(function(ss){
+        list.push({ name: ss.a.name, targetReps: ss.a.reps, targetWeight: ss.a.weight });
+        list.push({ name: ss.b.name, targetReps: ss.b.reps, targetWeight: ss.b.weight });
+      });
+    } else if(type === "single" || type === "timed" || type === "interval"){
+      list.push({ name: dayData.exercise.name, targetReps: dayData.exercise.reps, targetWeight: dayData.exercise.weight });
+    }
+    return list;
+  }
+
+  function newRoundEntries(prevRound, dayData, type){
+    var flat = flattenFromDayData(dayData, type);
+    return flat.map(function(ex, i){
+      // Round 1 starts pre-filled with the target rep count (10 by default, or whatever's
+      // set in Setup) and a blank weight. From round 2 on, both carry forward whatever was
+      // actually entered last round.
+      var prevWeight = prevRound ? prevRound[i].weight : (ex.targetWeight || "");
+      var prevReps = prevRound ? prevRound[i].reps : ex.targetReps;
+      return { name: ex.name, targetReps: ex.targetReps, weight: prevWeight, reps: prevReps };
+    });
+  }
+
+  // For interval days, the selected time cap is divided into whole (work+rest) cycles —
+  // e.g. 20 min / 2 min per cycle = 10 sets, 30 min = 15 sets. Rounded to the nearest whole
+  // set, since a leftover half-cycle isn't meaningful.
+  function computeIntervalSets(workSec, restSec, capMin){
+    var cycleMin = (workSec + restSec) / 60;
+    return Math.max(1, Math.round(capMin / cycleMin));
+  }
+
+  // Rest/work duration for an interval day comes from that day's own Setup config
+  // (user-customizable) and falls back to the DAY_META default if unset/invalid.
+  function getIntervalTiming(day){
+    var meta = DAY_META[day];
+    var dd = config.days[day] || {};
+    var restSec = dd.restSec > 0 ? dd.restSec : (meta.restSec || 60);
+    var workSec = dd.workSec > 0 ? dd.workSec : (meta.workSec || 60);
+    return { restSec: restSec, workSec: workSec };
+  }
+
+  function updateFixedDurationNote(){
+    var day = config.currentDay;
+    var meta = DAY_META[day];
+    var fixedNote = document.getElementById("fixedDurationNote");
+    var selectedCap = parseInt(document.getElementById("timeCapSelect").value, 10);
+    if(meta.type === "timed"){
+      fixedNote.style.display = "block";
+      fixedNote.textContent = "1 continuous set · " + selectedCap + " min, no rest breaks.";
+    } else if(meta.type === "interval"){
+      var timing = getIntervalTiming(day);
+      var sets = computeIntervalSets(timing.workSec, timing.restSec, selectedCap);
+      var totalMin = Math.round(sets * (timing.workSec + timing.restSec) / 60);
+      fixedNote.style.display = "block";
+      fixedNote.textContent = "Auto interval: " + sets + " sets × " + timing.workSec + "s work / " + timing.restSec + "s rest · " + totalMin + " min total, starts with rest.";
+    } else {
+      fixedNote.style.display = "none";
+    }
+  }
+
+  function updateWorkoutIdleUI(){
+    var day = config.currentDay;
+    var meta = DAY_META[day];
+    document.getElementById("workoutDayBanner").value = String(day);
+    var startRow = document.getElementById("startRow");
+    var restMsg = document.getElementById("restDayMsg");
+    var previewHeading = document.getElementById("idlePreviewHeading");
+    var fixedNote = document.getElementById("fixedDurationNote");
+    if(meta.type === "rest"){
+      startRow.style.display = "none";
+      restMsg.style.display = "block";
+      previewHeading.style.display = "none";
+      fixedNote.style.display = "none";
+    } else {
+      startRow.style.display = "flex";
+      restMsg.style.display = "none";
+      previewHeading.style.display = "block";
+      updateFixedDurationNote();
+    }
+    renderIdlePreview();
+    renderCaloriesToday();
+  }
+
+  document.getElementById("timeCapSelect").addEventListener("change", updateFixedDurationNote);
+
+  function renderCaloriesToday(){
+    var valueEl = document.getElementById("caloriesTodayValue");
+    var breakdownEl = document.getElementById("caloriesTodayBreakdown");
+    var bmr = computeBMR();
+    if(!bmr){
+      valueEl.textContent = "--";
+      breakdownEl.textContent = "Add your stats in the Profile tab to see this.";
+      return;
+    }
+    var now = new Date();
+    var hoursElapsed = now.getHours() + now.getMinutes()/60 + now.getSeconds()/3600;
+    var bmrSoFar = bmr * (hoursElapsed/24);
+    var todayStr = now.toDateString();
+    var workoutCals = loadHistory()
+      .filter(function(r){ return new Date(r.date).toDateString() === todayStr; })
+      .reduce(function(sum, r){ return sum + (r.calories || 0); }, 0);
+    var total = Math.round(bmrSoFar + workoutCals);
+    valueEl.textContent = total.toLocaleString();
+    breakdownEl.textContent = "Resting: " + Math.round(bmrSoFar) + " · Workouts: " + Math.round(workoutCals) + " kcal";
+  }
+
+  function renderIdlePreview(){
+    var day = config.currentDay;
+    var meta = DAY_META[day];
+    var dayData = config.days[day];
+    var listEl = document.getElementById("idlePreviewList");
+    var colHead = document.getElementById("idlePreviewColHead");
+
+    if(meta.type === "rest"){
+      colHead.style.display = "none";
+      listEl.innerHTML = "";
+      return;
+    }
+
+    if(meta.type === "timed" || meta.type === "interval"){
+      colHead.style.display = "none";
+      var exName = dayData.exercise ? dayData.exercise.name : "";
+      listEl.innerHTML = '<div class="exercise-row"><div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(exName) + '</div></div>';
+      return;
+    }
+
+    colHead.style.display = "";
+
+    function rowHtml(idx, slot, ex){
+      return '<div class="exercise-row">' +
+        '<div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(ex.name) + '</div>' +
+        '<div class="target-fields">' +
+          '<input type="number" data-ss="'+idx+'" data-slot="'+slot+'" data-field="reps" value="'+ex.reps+'" placeholder="#" min="1" max="99">' +
+          '<input type="number" data-ss="'+idx+'" data-slot="'+slot+'" data-field="weight" value="'+ex.weight+'" placeholder="lb" min="0">' +
+        '</div></div>';
+    }
+
+    var html = "";
+    if(meta.type === "supersets"){
+      dayData.supersets.forEach(function(ss, idx){
+        html += '<p class="superset-title" style="margin-top:'+(idx===0?"0":"14px")+';">Superset ' + (idx+1) + '</p>';
+        html += rowHtml(idx, "a", ss.a);
+        html += rowHtml(idx, "b", ss.b);
+      });
+    } else if(meta.type === "single"){
+      html += rowHtml(0, "solo", dayData.exercise);
+    }
+    listEl.innerHTML = html;
+
+    listEl.querySelectorAll("input").forEach(function(inp){
+      inp.addEventListener("input", function(){
+        var field = inp.dataset.field, slot = inp.dataset.slot;
+        var val = inp.value === "" ? (field === "weight" ? "" : 10) : parseInt(inp.value, 10);
+        if(isNaN(val)) val = (field === "weight") ? "" : 10;
+        if(meta.type === "supersets"){
+          var idx = parseInt(inp.dataset.ss, 10);
+          dayData.supersets[idx][slot][field] = val;
+        } else {
+          dayData.exercise[field] = val;
+        }
+        saveConfig(config);
+      });
+    });
+  }
+
+  document.getElementById("prevDayBtnWorkout").addEventListener("click", function(){
+    config.currentDay = config.currentDay === 1 ? 7 : config.currentDay - 1;
+    saveConfig(config);
+    updateWorkoutIdleUI();
+  });
+  document.getElementById("nextDayBtnWorkout").addEventListener("click", function(){
+    config.currentDay = config.currentDay === 7 ? 1 : config.currentDay + 1;
+    saveConfig(config);
+    updateWorkoutIdleUI();
+  });
+
+  function startWorkout(){
+    var day = config.currentDay;
+    var meta = DAY_META[day];
+    if(meta.type === "rest") return;
+    var selectedCap = parseInt(document.getElementById("timeCapSelect").value, 10);
+    var capMin = selectedCap;
+    var intervalSets = null;
+    var timing = null;
+    if(meta.type === "interval"){
+      timing = getIntervalTiming(day);
+      intervalSets = computeIntervalSets(timing.workSec, timing.restSec, selectedCap);
+      capMin = Math.round(intervalSets * (timing.workSec + timing.restSec) / 60);
+    }
+    var dayDataSnapshot = JSON.parse(JSON.stringify(config.days[day]));
+    session = {
+      day: day,
+      dayLabel: meta.label,
+      dayType: meta.type,
+      dayData: dayDataSnapshot,
+      capMin: capMin,
+      startedAt: Date.now(),
+      paused: false,
+      pausedAt: null,
+      totalPausedMs: 0,
+      capAlertPlayed: false,
+      rounds: [],           // completed rounds
+      current: newRoundEntries(null, dayDataSnapshot, meta.type)
+    };
+    if(meta.type === "interval"){
+      var startPhase = meta.startPhase || "rest";
+      session.interval = {
+        phase: startPhase,
+        setIndex: 1,
+        totalSets: intervalSets,
+        workSec: timing.workSec,
+        restSec: timing.restSec,
+        phaseEndsAt: Date.now() + (startPhase === "work" ? timing.workSec : timing.restSec) * 1000,
+        finished: false,
+        remainingMs: null
+      };
+    }
+    persistSession();
+    document.getElementById("idleBlock").style.display = "none";
+    document.getElementById("prepBlock").style.display = "none";
+    document.getElementById("activeBlock").style.display = "block";
+    document.getElementById("pausedControls").style.display = "block";
+    document.getElementById("capLabel").textContent = capMin;
+    renderActiveScreen();
+    startTicker();
+  }
+
+  function persistSession(){
+    // Same defensive wrapping as saveConfig/saveHistory — this one's especially important
+    // since it's called every time a workout starts, which is exactly the flow that was
+    // silently breaking in restricted browser contexts where sessionStorage throws.
+    try{ if(session) sessionStorage.setItem(STORAGE_SESSION, JSON.stringify(session)); else sessionStorage.removeItem(STORAGE_SESSION); }catch(e){}
+    try{ localStorage.setItem(STORAGE_SESSION, session ? JSON.stringify(session) : ""); }catch(e){}
+  }
+
+  function restoreSession(){
+    try{
+      var raw = localStorage.getItem(STORAGE_SESSION);
+      if(raw){
+        session = JSON.parse(raw);
+        document.getElementById("idleBlock").style.display = "none";
+        document.getElementById("activeBlock").style.display = "block";
+        document.getElementById("pausedControls").style.display = "block";
+        document.getElementById("capLabel").textContent = session.capMin;
+        renderActiveScreen();
+        renderPauseUI();
+        document.getElementById("completeRoundBtn").disabled = !!session.paused;
+        if(!session.paused) startTicker();
+        else updateClockDisplay();
+      }
+    }catch(e){}
+  }
+
+  // Shows/hides the right active-workout UI for this session's day type, then delegates
+  // to the type-specific renderer (renderRound for supersets, updateIntervalDisplay for
+  // the Day 6 auto interval timer; "timed" days just show the big elapsed clock).
+  function renderActiveScreen(){
+    var roundCard = document.getElementById("roundCard");
+    var completeBtn = document.getElementById("completeRoundBtn");
+    var intervalCard = document.getElementById("intervalCard");
+    var intervalTimelineCard = document.getElementById("intervalTimelineCard");
+    var badge = document.getElementById("roundsCompletedBadge");
+    var roundNumBadge = document.getElementById("roundNumBadge");
+
+    if(session.dayType === "interval"){
+      roundCard.style.display = "none";
+      completeBtn.style.display = "none";
+      intervalCard.style.display = "block";
+      intervalTimelineCard.style.display = "block";
+      roundNumBadge.style.display = "none";
+      badge.style.display = "inline-block";
+      document.getElementById("intervalExerciseName").textContent = session.current[0] ? session.current[0].name : "";
+      renderIntervalTimeline();
+      updateIntervalDisplay();
+    } else if(session.dayType === "timed"){
+      roundCard.style.display = "none";
+      completeBtn.style.display = "none";
+      intervalCard.style.display = "none";
+      intervalTimelineCard.style.display = "none";
+      roundNumBadge.style.display = "none";
+      badge.style.display = "none";
+    } else {
+      roundCard.style.display = "block";
+      completeBtn.style.display = "block";
+      intervalCard.style.display = "none";
+      intervalTimelineCard.style.display = "none";
+      roundNumBadge.style.display = "inline";
+      badge.style.display = "inline-block";
+      renderRound();
+    }
+  }
+
+  // Builds one Rest/Work bar pair per set, all 20 (or however many) segments visible at
+  // once — laid out once per workout start, then just had their fill widths updated each tick.
+  function renderIntervalTimeline(){
+    var wrap = document.getElementById("intervalTimeline");
+    if(!session || !session.interval){ wrap.innerHTML = ""; return; }
+    var totalSets = session.interval.totalSets;
+    var html = "";
+    for(var i = 1; i <= totalSets; i++){
+      html +=
+        '<div class="interval-round" id="intervalRound' + i + '">' +
+          '<div class="interval-round-label">Round ' + i + '</div>' +
+          '<div class="interval-bar-row"><span class="interval-bar-tag">Rest</span>' +
+            '<div class="interval-bar-track"><div class="interval-bar-fill rest" id="intervalBarRest' + i + '"></div></div></div>' +
+          '<div class="interval-bar-row"><span class="interval-bar-tag">Work</span>' +
+            '<div class="interval-bar-track"><div class="interval-bar-fill work" id="intervalBarWork' + i + '"></div></div></div>' +
+        '</div>';
+    }
+    wrap.innerHTML = html;
+  }
+
+  // Updates just the fill widths (and which round is marked "current") — called every tick
+  // instead of rebuilding the whole list, so the transition:width CSS can animate smoothly.
+  function updateIntervalTimelineProgress(){
+    if(!session || !session.interval) return;
+    var iv = session.interval;
+    var msLeft = session.paused
+      ? (iv.remainingMs != null ? iv.remainingMs : Math.max(0, iv.phaseEndsAt - Date.now()))
+      : Math.max(0, iv.phaseEndsAt - Date.now());
+    for(var i = 1; i <= iv.totalSets; i++){
+      var roundEl = document.getElementById("intervalRound" + i);
+      var restEl = document.getElementById("intervalBarRest" + i);
+      var workEl = document.getElementById("intervalBarWork" + i);
+      if(!restEl || !workEl) continue;
+      if(roundEl) roundEl.classList.toggle("current", i === iv.setIndex && !iv.finished);
+      if(iv.finished || i < iv.setIndex){
+        restEl.style.width = "100%";
+        workEl.style.width = "100%";
+      } else if(i === iv.setIndex){
+        if(iv.phase === "rest"){
+          restEl.style.width = Math.max(0, Math.min(100, 100 - (msLeft / (iv.restSec*1000) * 100))) + "%";
+          workEl.style.width = "0%";
+        } else {
+          restEl.style.width = "100%";
+          workEl.style.width = Math.max(0, Math.min(100, 100 - (msLeft / (iv.workSec*1000) * 100))) + "%";
+        }
+      } else {
+        restEl.style.width = "0%";
+        workEl.style.width = "0%";
+      }
+    }
+  }
+
+  function renderRound(){
+    document.getElementById("roundNum").textContent = session.rounds.length + 1;
+    document.getElementById("roundsCompletedBadge").textContent = "✅ Rounds Completed: " + session.rounds.length;
+    var wrap = document.getElementById("roundExerciseList");
+    wrap.innerHTML = "";
+    var groupBySS = session.dayType === "supersets";
+    var lastSS = -1;
+    session.current.forEach(function(ex, i){
+      if(groupBySS){
+        var ssIndex = Math.floor(i/2);
+        if(ssIndex !== lastSS){
+          var title = document.createElement("p");
+          title.className = "superset-title";
+          title.style.marginTop = ssIndex === 0 ? "0" : "14px";
+          title.textContent = "Superset " + (ssIndex+1);
+          wrap.appendChild(title);
+          lastSS = ssIndex;
+        }
+      }
+      var row = document.createElement("div");
+      row.className = "exercise-log-row";
+      row.innerHTML =
+        '<div class="name">' + escapeHtml(ex.name) + '<small>target ' + ex.targetReps + ' reps</small></div>' +
+        '<input type="number" inputmode="decimal" data-i="'+i+'" data-f="weight" value="'+ex.weight+'" placeholder="lb">' +
+        '<input type="number" inputmode="numeric" data-i="'+i+'" data-f="reps" value="'+ex.reps+'" placeholder="#">';
+      wrap.appendChild(row);
+    });
+    wrap.querySelectorAll("input").forEach(function(inp){
+      inp.addEventListener("input", function(){
+        var i = parseInt(inp.dataset.i,10), f = inp.dataset.f;
+        session.current[i][f] = inp.value;
+        persistSession();
+      });
+    });
+  }
+
+  // Auto-advances the Day 6 interval timer: counts down the current phase (rest/work) and,
+  // on reaching zero, flips to the next phase (playing a sound), logging a completed set
+  // once a work phase finishes. Runs off the same 1s ticker as the main elapsed clock.
+  function updateIntervalDisplay(){
+    if(!session || session.dayType !== "interval" || !session.interval) return;
+    var iv = session.interval;
+    var phaseLabelEl = document.getElementById("intervalPhaseLabel");
+    var countdownEl = document.getElementById("intervalCountdown");
+    var setLabelEl = document.getElementById("intervalSetLabel");
+    var badge = document.getElementById("roundsCompletedBadge");
+
+    if(iv.finished){
+      phaseLabelEl.textContent = "✅ DONE";
+      countdownEl.textContent = "0:00";
+      setLabelEl.textContent = "All " + iv.totalSets + " sets complete!";
+      badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
+      updateIntervalTimelineProgress();
+      return;
+    }
+
+    if(session.paused){
+      var frozenMs = iv.remainingMs != null ? iv.remainingMs : Math.max(0, iv.phaseEndsAt - Date.now());
+      phaseLabelEl.textContent = iv.phase === "work" ? "🔥 WORK" : "😮‍💨 REST";
+      countdownEl.textContent = formatQuickTime(Math.ceil(frozenMs/1000));
+      setLabelEl.textContent = "Set " + iv.setIndex + " of " + iv.totalSets;
+      badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
+      updateIntervalTimelineProgress();
+      return;
+    }
+
+    var msLeft = iv.phaseEndsAt - Date.now();
+    // A while loop (not just "if") covers the rare case of the tab being backgrounded
+    // through more than one phase boundary at once.
+    while(msLeft <= 0 && !iv.finished){
+      playTimerSound();
+      if(iv.phase === "rest"){
+        iv.phase = "work";
+        iv.phaseEndsAt += iv.workSec * 1000;
+      } else {
+        // a work interval just finished — log it as a completed set
+        session.rounds.push(session.current);
+        if(iv.setIndex >= iv.totalSets){
+          iv.finished = true;
+          iv.phase = "done";
+        } else {
+          iv.setIndex += 1;
+          iv.phase = "rest";
+          iv.phaseEndsAt += iv.restSec * 1000;
+        }
+      }
+      msLeft = iv.finished ? 0 : (iv.phaseEndsAt - Date.now());
+    }
+    persistSession();
+
+    if(iv.finished){
+      phaseLabelEl.textContent = "✅ DONE";
+      countdownEl.textContent = "0:00";
+      setLabelEl.textContent = "All " + iv.totalSets + " sets complete!";
+      badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
+      updateIntervalTimelineProgress();
+      clearInterval(tickInterval);
+      document.getElementById("activeBlock").style.display = "none";
+      document.getElementById("finishIntensityBlock").style.display = "block";
+      return;
+    }
+
+    var secLeft = Math.max(0, Math.ceil(msLeft/1000));
+    phaseLabelEl.textContent = iv.phase === "work" ? "🔥 WORK" : "😮‍💨 REST";
+    countdownEl.textContent = formatQuickTime(secLeft);
+    setLabelEl.textContent = "Set " + iv.setIndex + " of " + iv.totalSets;
+    badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
+    updateIntervalTimelineProgress();
+  }
+
+  // ---------- 30s "Get Ready" prep countdown before the workout actually starts ----------
+  var PREP_SECONDS = 30;
+  var prepState = { remaining: PREP_SECONDS, intervalId: null };
+
+  function renderPrepCountdown(){
+    document.getElementById("prepCountdownClock").textContent = prepState.remaining;
+  }
+
+  function beginPrepCountdown(){
+    var meta = DAY_META[config.currentDay];
+    if(meta.type === "rest") return;
+    prepState.remaining = PREP_SECONDS;
+    document.getElementById("idleBlock").style.display = "none";
+    document.getElementById("prepBlock").style.display = "block";
+    renderPrepCountdown();
+    clearInterval(prepState.intervalId);
+    prepState.intervalId = setInterval(function(){
+      prepState.remaining -= 1;
+      if(prepState.remaining <= 0){
+        clearInterval(prepState.intervalId);
+        playTimerSound();
+        document.getElementById("prepBlock").style.display = "none";
+        startWorkout();
+      } else {
+        renderPrepCountdown();
+      }
+    }, 1000);
+  }
+
+  document.getElementById("startBtn").addEventListener("click", beginPrepCountdown);
+
+  document.getElementById("prepSkipBtn").addEventListener("click", function(){
+    clearInterval(prepState.intervalId);
+    document.getElementById("prepBlock").style.display = "none";
+    startWorkout();
+  });
+
+  document.getElementById("prepCancelBtn").addEventListener("click", function(){
+    clearInterval(prepState.intervalId);
+    document.getElementById("prepBlock").style.display = "none";
+    document.getElementById("idleBlock").style.display = "block";
+  });
+
+  document.getElementById("completeRoundBtn").addEventListener("click", function(){
+    // Log the round, immediately show the next round's exercises (editable right away —
+    // no separate rest screen blocking them), and kick the Quick Timer off as the single
+    // rest countdown instead of running a second, mismatched timer.
+    session.rounds.push(session.current);
+    session.current = newRoundEntries(session.rounds[session.rounds.length-1], session.dayData, session.dayType);
+    persistSession();
+    renderRound();
+    kickOffRestTimer();
+  });
+
+  document.getElementById("finishWorkoutBtn").addEventListener("click", function(){
+    document.getElementById("activeBlock").style.display = "none";
+    document.getElementById("finishIntensityBlock").style.display = "block";
+  });
+
+  document.getElementById("cancelFinishBtn").addEventListener("click", function(){
+    document.getElementById("finishIntensityBlock").style.display = "none";
+    document.getElementById("activeBlock").style.display = "block";
+  });
+
+  document.querySelectorAll(".intensityBtn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      document.getElementById("finishIntensityBlock").style.display = "none";
+      finishWorkout(btn.dataset.intensity);
+    });
+  });
+
+  document.getElementById("cancelWorkoutBtn").addEventListener("click", function(){
+    if(!confirm("Discard this in-progress workout?")) return;
+    clearInterval(tickInterval);
+    session = null;
+    persistSession();
+    resetToIdle();
+  });
+
+  function renderPauseUI(){
+    var btn = document.getElementById("pauseWorkoutBtn");
+    btn.textContent = (session && session.paused) ? "▶ Resume Workout" : "⏸ Pause Workout";
+  }
+
+  document.getElementById("pauseWorkoutBtn").addEventListener("click", function(){
+    if(!session) return;
+    if(session.paused){
+      // resume
+      session.totalPausedMs = (session.totalPausedMs || 0) + (Date.now() - session.pausedAt);
+      if(session.dayType === "interval" && session.interval && !session.interval.finished){
+        // pick the interval phase back up where it left off instead of losing the paused time
+        session.interval.phaseEndsAt = Date.now() + (session.interval.remainingMs || 0);
+        session.interval.remainingMs = null;
+      }
+      session.paused = false;
+      session.pausedAt = null;
+      persistSession();
+      renderPauseUI();
+      document.getElementById("completeRoundBtn").disabled = false;
+      startTicker();
+    } else {
+      // pause — also pause the Quick Timer if it's running so nothing keeps counting silently
+      pauseQuickTimerRun();
+      if(session.dayType === "interval" && session.interval && !session.interval.finished){
+        session.interval.remainingMs = Math.max(0, session.interval.phaseEndsAt - Date.now());
+      }
+      session.paused = true;
+      session.pausedAt = Date.now();
+      persistSession();
+      clearInterval(tickInterval);
+      updateClockDisplay();
+      renderPauseUI();
+      document.getElementById("completeRoundBtn").disabled = true;
+    }
+  });
+
+  function finishWorkout(intensity){
+    // A "timed" day (continuous cardio) never has a round logged via a button — count it
+    // as the 1 set it is once you finish, so History has something to show.
+    if(session.dayType === "timed" && session.rounds.length === 0){
+      session.rounds.push(session.current);
+    }
+    var elapsedSec = Math.round(getElapsedMs()/1000);
+    // For a continuous timed set, rounds/min pace is meaningless (finishing sooner isn't
+    // "faster", it's just less time) — skip the pace multiplier by passing 0 rounds.
+    var roundsForCalorie = session.dayType === "timed" ? 0 : session.rounds.length;
+    var calories = estimateWorkoutCalories(session.day, elapsedSec, intensity, roundsForCalorie);
+    var record = {
+      date: new Date(session.startedAt).toISOString(),
+      day: session.day,
+      dayLabel: session.dayLabel,
+      dayType: session.dayType,
+      capMin: session.capMin,
+      elapsedSec: elapsedSec,
+      roundsCompleted: session.rounds.length,
+      totalSets: session.interval ? session.interval.totalSets : null,
+      workSec: session.interval ? session.interval.workSec : null,
+      restSec: session.interval ? session.interval.restSec : null,
+      rounds: session.rounds,
+      intensity: intensity,
+      calories: calories
+    };
+    var history = loadHistory();
+    history.unshift(record);
+    saveHistory(history);
+    clearInterval(tickInterval);
+    session = null;
+    persistSession();
+    resetToIdle();
+    var msg;
+    if(record.dayType === "timed") msg = "Workout saved: " + Math.round(elapsedSec/60) + " min continuous set";
+    else if(record.dayType === "interval") msg = "Workout saved: " + record.roundsCompleted + " / " + (record.totalSets || record.roundsCompleted) + " sets completed";
+    else msg = "Workout saved: " + record.roundsCompleted + " round(s) completed";
+    if(calories) msg += ", ~" + calories + " kcal";
+    alert(msg + ".");
+  }
+
+  function resetToIdle(){
+    document.getElementById("idleBlock").style.display = "block";
+    document.getElementById("activeBlock").style.display = "none";
+    document.getElementById("finishIntensityBlock").style.display = "none";
+    document.getElementById("pausedControls").style.display = "none";
+    document.getElementById("roundNum").textContent = "1";
+    document.getElementById("clockDisplay").textContent = "00:00";
+    document.getElementById("capWarning").textContent = "";
+    document.getElementById("completeRoundBtn").disabled = false;
+    renderPauseUI();
+    updateWorkoutIdleUI();
+  }
+
+  function updateClockDisplay(){
+    if(!session) return;
+    var totalSec = Math.floor(getElapsedMs()/1000);
+    var mm = String(Math.floor(totalSec/60)).padStart(2,"0");
+    var ss = String(totalSec%60).padStart(2,"0");
+    document.getElementById("clockDisplay").textContent = mm + ":" + ss;
+    var capSec = session.capMin*60;
+    var warn = document.getElementById("capWarning");
+    if(totalSec >= capSec){
+      warn.textContent = "⏰ Time cap reached — wrap up!";
+      // Ding once when the cap is hit, but never pause/stop anything — you might be
+      // mid-round and want to finish it out.
+      if(!session.capAlertPlayed){
+        session.capAlertPlayed = true;
+        persistSession();
+        playTimerSound();
+      }
+    } else if(totalSec >= capSec - 60){
+      warn.textContent = "Final minute!";
+    } else {
+      warn.textContent = "";
+    }
+    if(session.dayType === "interval") updateIntervalDisplay();
+  }
+
+  function startTicker(){
+    clearInterval(tickInterval);
+    updateClockDisplay();
+    tickInterval = setInterval(updateClockDisplay, 1000);
+  }
+
+  function beep(){
+    try{
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = 880;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.2, ctx.currentTime);
+      o.start();
+      o.frequency.setValueAtTime(880, ctx.currentTime);
+      o.frequency.setValueAtTime(1200, ctx.currentTime+0.15);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
+      o.stop(ctx.currentTime+0.5);
+    }catch(e){}
+    if(navigator.vibrate) navigator.vibrate([200,100,200]);
+  }
+
+  // ---------- Quick Timer (manual, up to 1 minute, selectable alert sound) ----------
+  var sharedAudioCtx = null;
+  function getAudioCtx(){
+    if(!sharedAudioCtx){
+      sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if(sharedAudioCtx.state === "suspended") sharedAudioCtx.resume();
+    return sharedAudioCtx;
+  }
+  function playTone(freq, delay, duration, waveType, gainVal){
+    try{
+      var ctx = getAudioCtx();
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = waveType || "sine";
+      o.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(gainVal || 0.2, ctx.currentTime + delay);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
+      o.start(ctx.currentTime + delay);
+      o.stop(ctx.currentTime + delay + duration + 0.05);
+    }catch(e){}
+  }
+
+  var TIMER_SOUNDS = {
+    beep:  { label:"Classic Beep",  play:function(){ playTone(880,0,0.18,"sine",0.25); playTone(1200,0.18,0.3,"sine",0.25); } },
+    chime: { label:"Triple Chime",  play:function(){ playTone(659.25,0,0.18,"sine",0.22); playTone(783.99,0.18,0.18,"sine",0.22); playTone(1046.5,0.36,0.35,"sine",0.22); } },
+    buzz:  { label:"Digital Buzz",  play:function(){ playTone(220,0,0.15,"square",0.15); playTone(220,0.2,0.15,"square",0.15); playTone(220,0.4,0.25,"square",0.15); } },
+    bell:  { label:"Bell Ring",     play:function(){ playTone(1318.5,0,0.9,"sine",0.2); playTone(2637,0,0.9,"triangle",0.08); } }
+  };
+
+  function playTimerSound(){
+    var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
+    TIMER_SOUNDS[key].play();
+    if(navigator.vibrate) navigator.vibrate([200,100,200]);
+  }
+
+  function populateTimerSoundSelect(){
+    var sel = document.getElementById("quickTimerSound");
+    sel.innerHTML = "";
+    Object.keys(TIMER_SOUNDS).forEach(function(key){
+      var opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = TIMER_SOUNDS[key].label;
+      sel.appendChild(opt);
+    });
+    sel.value = config.timerSound || "beep";
+  }
+
+  var quickTimer = {
+    duration: config.timerDuration || 60,
+    remaining: config.timerDuration || 60,
+    running: false,
+    endsAt: null,
+    intervalId: null
+  };
+
+  function formatQuickTime(sec){
+    var m = Math.floor(sec/60), s = sec%60;
+    return m + ":" + String(s).padStart(2,"0");
+  }
+
+  function renderQuickTimer(){
+    var clockInp = document.getElementById("quickTimerClock");
+    if(document.activeElement !== clockInp){
+      clockInp.value = formatQuickTime(quickTimer.remaining);
+    }
+    clockInp.disabled = quickTimer.running;
+    document.getElementById("quickTimerDurationLabel").textContent = "Duration: " + quickTimer.duration + "s";
+    document.getElementById("quickTimerStartBtn").textContent = quickTimer.running ? "⏸ Pause" : "▶ Start";
+    document.getElementById("quickTimerDuration").disabled = quickTimer.running;
+  }
+
+  function parseQuickTimerInput(str){
+    str = (str || "").trim();
+    var val;
+    if(str.indexOf(":") > -1){
+      var parts = str.split(":");
+      var mins = parseInt(parts[0], 10) || 0;
+      var secs = parseInt(parts[1], 10) || 0;
+      val = mins*60 + secs;
+    } else {
+      val = parseInt(str.replace(/[^0-9]/g, ""), 10);
+    }
+    if(isNaN(val)) val = quickTimer.duration;
+    return Math.max(5, Math.min(60, val));
+  }
+
+  function commitQuickTimerInput(){
+    var clockInp = document.getElementById("quickTimerClock");
+    var val = parseQuickTimerInput(clockInp.value);
+    quickTimer.duration = val;
+    quickTimer.remaining = val;
+    config.timerDuration = val;
+    saveConfig(config);
+    document.getElementById("quickTimerDuration").value = String(val);
+    renderQuickTimer();
+  }
+
+  (function(){
+    var clockInp = document.getElementById("quickTimerClock");
+    clockInp.addEventListener("focus", function(){ clockInp.select(); });
+    clockInp.addEventListener("blur", commitQuickTimerInput);
+    clockInp.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); clockInp.blur(); }
+    });
+  })();
+
+  document.getElementById("quickTimerDuration").addEventListener("input", function(e){
+    if(quickTimer.running) return;
+    var val = parseInt(e.target.value, 10);
+    quickTimer.duration = val;
+    quickTimer.remaining = val;
+    config.timerDuration = val;
+    saveConfig(config);
+    renderQuickTimer();
+  });
+
+  document.getElementById("quickTimerSound").addEventListener("change", function(e){
+    config.timerSound = e.target.value;
+    saveConfig(config);
+  });
+
+  document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
+    playTimerSound();
+  });
+
+  function quickTimerTick(){
+    var msLeft = quickTimer.endsAt - Date.now();
+    if(msLeft <= 0){
+      quickTimer.remaining = 0;
+      quickTimer.running = false;
+      clearInterval(quickTimer.intervalId);
+      renderQuickTimer();
+      playTimerSound();
+      return;
+    }
+    quickTimer.remaining = Math.ceil(msLeft/1000);
+    renderQuickTimer();
+  }
+
+  function pauseQuickTimerRun(){
+    if(!quickTimer.running) return;
+    quickTimer.remaining = Math.max(0, Math.ceil((quickTimer.endsAt - Date.now())/1000));
+    quickTimer.running = false;
+    clearInterval(quickTimer.intervalId);
+    renderQuickTimer();
+  }
+
+  function startQuickTimerRun(){
+    if(quickTimer.remaining <= 0) quickTimer.remaining = quickTimer.duration;
+    quickTimer.endsAt = Date.now() + quickTimer.remaining*1000;
+    quickTimer.running = true;
+    clearInterval(quickTimer.intervalId);
+    quickTimerTick();
+    quickTimer.intervalId = setInterval(quickTimerTick, 250);
+    renderQuickTimer();
+  }
+
+  // Used when a round is completed: always restarts the Quick Timer fresh at its configured
+  // duration, so there's a single rest countdown instead of a redundant separate one.
+  function kickOffRestTimer(){
+    clearInterval(quickTimer.intervalId);
+    quickTimer.remaining = quickTimer.duration;
+    startQuickTimerRun();
+  }
+
+  document.getElementById("quickTimerStartBtn").addEventListener("click", function(){
+    if(quickTimer.running) pauseQuickTimerRun();
+    else startQuickTimerRun();
+  });
+
+  document.getElementById("quickTimerResetBtn").addEventListener("click", function(){
+    clearInterval(quickTimer.intervalId);
+    quickTimer.running = false;
+    quickTimer.remaining = quickTimer.duration;
+    renderQuickTimer();
+  });
+
+  // ---------- Profile screen ----------
+  function renderProfile(){
+    var p = config.profile || {};
+    document.getElementById("profileAge").value = p.age || "";
+    document.getElementById("profileSex").value = p.sex || "";
+    document.getElementById("profileHeightFt").value = p.heightFt || "";
+    document.getElementById("profileHeightIn").value = p.heightIn || "";
+    document.getElementById("profileWeight").value = p.weightLb || "";
+    updateBMRDisplay();
+  }
+
+  function updateBMRDisplay(){
+    var bmr = computeBMR();
+    document.getElementById("profileBMRDisplay").textContent = bmr
+      ? ("Estimated BMR: " + Math.round(bmr).toLocaleString() + " kcal/day at rest")
+      : "Fill in all fields to see your estimated BMR.";
+  }
+
+  function commitProfileFromInputs(){
+    config.profile = config.profile || {};
+    config.profile.age = parseInt(document.getElementById("profileAge").value, 10) || null;
+    config.profile.sex = document.getElementById("profileSex").value || "";
+    config.profile.heightFt = parseInt(document.getElementById("profileHeightFt").value, 10) || 0;
+    config.profile.heightIn = parseInt(document.getElementById("profileHeightIn").value, 10) || 0;
+    config.profile.weightLb = parseFloat(document.getElementById("profileWeight").value) || null;
+    saveConfig(config);
+    updateBMRDisplay();
+    renderCaloriesToday();
+  }
+
+  ["profileAge", "profileHeightFt", "profileHeightIn", "profileWeight"].forEach(function(id){
+    document.getElementById(id).addEventListener("input", commitProfileFromInputs);
+  });
+  document.getElementById("profileSex").addEventListener("change", commitProfileFromInputs);
+
+  document.getElementById("exportBackupBtn").addEventListener("click", function(){
+    var backup = {
+      exportedAt: new Date().toISOString(),
+      config: config,
+      history: loadHistory()
+    };
+    var json = JSON.stringify(backup, null, 2);
+    var blob = new Blob([json], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "amrap-tracker-backup-" + todayLocalDateStr() + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  });
+
+  // ---------- History screen ----------
+  // Total weight moved for a whole workout: sum of reps × weight across every exercise,
+  // every round. Used both in the collapsed History row and the expanded per-exercise table.
+  function computeRecordVolume(rec){
+    var total = 0;
+    (rec.rounds || []).forEach(function(round){
+      round.forEach(function(e){
+        total += (parseFloat(e.reps) || 0) * (parseFloat(e.weight) || 0);
+      });
+    });
+    return total;
+  }
+
+  function renderHistory(){
+    var history = loadHistory();
+    var wrap = document.getElementById("historyList");
+    if(history.length === 0){
+      wrap.innerHTML = '<div class="card idle-hint">No workouts saved yet.</div>';
+      return;
+    }
+    wrap.innerHTML = "";
+    history.forEach(function(rec, idx){
+      var d = new Date(rec.date);
+      var item = document.createElement("div");
+      item.className = "history-item";
+      var mm = Math.floor(rec.elapsedSec/60), ss = String(rec.elapsedSec%60).padStart(2,"0");
+      var dayTag = rec.dayLabel ? ("Day " + rec.day + ": " + escapeHtml(rec.dayLabel) + " &middot; ") : "";
+      var calTag = rec.calories ? (' &middot; ~' + rec.calories + ' kcal') : "";
+      var totalVolume = computeRecordVolume(rec);
+      var weightTag = totalVolume > 0 ? (' &middot; ' + Math.round(totalVolume).toLocaleString() + ' lb lifted') : "";
+      var roundsLabel;
+      if(rec.dayType === "timed") roundsLabel = "1 continuous set";
+      else if(rec.dayType === "interval") roundsLabel = rec.roundsCompleted + " / " + (rec.totalSets || rec.roundsCompleted) + " sets";
+      else roundsLabel = rec.roundsCompleted + " rounds";
+      item.innerHTML =
+        '<div class="history-head" data-idx="'+idx+'">' +
+          '<div><div class="date">'+d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})+'</div>' +
+          '<div class="meta">'+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})+'</div></div>' +
+          '<div class="meta">'+dayTag+roundsLabel+' &middot; '+mm+':'+ss+' / '+rec.capMin+'m'+weightTag+calTag+'</div>' +
+        '</div>' +
+        '<div class="history-detail" id="hist-detail-'+idx+'"></div>';
+      wrap.appendChild(item);
+    });
+    document.querySelectorAll(".history-head").forEach(function(head){
+      head.addEventListener("click", function(){
+        var idx = parseInt(head.dataset.idx,10);
+        var detail = document.getElementById("hist-detail-"+idx);
+        if(detail.classList.contains("open")){ detail.classList.remove("open"); return; }
+        if(!detail.dataset.built){
+          var rec = history[idx];
+          if(rec.dayType === "timed" || rec.dayType === "interval"){
+            detail.appendChild(buildCardioDetail(rec));
+          } else {
+            detail.appendChild(buildHistoryTotals(rec));
+            detail.appendChild(buildHistoryTable(rec));
+          }
+          var delBtn = document.createElement("button");
+          delBtn.className = "secondary danger";
+          delBtn.style.marginTop = "10px";
+          delBtn.textContent = "🗑 Delete This Workout";
+          delBtn.addEventListener("click", function(){
+            if(!confirm("Delete this workout from history? This can't be undone.")) return;
+            var fresh = loadHistory();
+            fresh.splice(idx, 1);
+            saveHistory(fresh);
+            renderHistory();
+          });
+          detail.appendChild(delBtn);
+          detail.dataset.built = "1";
+        }
+        detail.classList.toggle("open");
+      });
+    });
+    document.getElementById("clearHistoryBtn").onclick = function(){
+      if(confirm("Delete all saved workout history?")){
+        saveHistory([]);
+        renderHistory();
+      }
+    };
+  }
+
+  // For cardio days (timed/interval) reps and weight aren't meaningful, so History shows
+  // timing info instead of the per-exercise reps/weight table.
+  function buildCardioDetail(rec){
+    var wrap = document.createElement("div");
+    var mm = Math.floor(rec.elapsedSec/60), ss = String(rec.elapsedSec%60).padStart(2,"0");
+    var lines = [ "Total time: " + mm + ":" + ss ];
+    if(rec.dayType === "interval"){
+      lines.push("Rest per round: " + (rec.restSec != null ? rec.restSec + "s" : "—"));
+      lines.push("Work per round: " + (rec.workSec != null ? rec.workSec + "s" : "—"));
+      lines.push("Sets completed: " + rec.roundsCompleted + " / " + (rec.totalSets || rec.roundsCompleted));
+    } else {
+      lines.push("Continuous set — no rest breaks.");
+    }
+    var p = document.createElement("p");
+    p.className = "day-nav-label";
+    p.style.margin = "6px 0";
+    p.innerHTML = lines.join("<br>");
+    wrap.appendChild(p);
+    return wrap;
+  }
+
+  function buildHistoryTotals(rec){
+    var wrap = document.createElement("div");
+    if(!rec.rounds.length) return wrap;
+    var names = rec.rounds[0].map(function(e){ return e.name; });
+    var grandReps = 0, grandVolume = 0;
+
+    var table = document.createElement("table");
+    var head = "<tr><th>Exercise</th><th>Total Reps</th><th>Total Volume</th></tr>";
+    var body = "";
+    names.forEach(function(name, exi){
+      var totalReps = 0, totalVolume = 0;
+      rec.rounds.forEach(function(round){
+        var e = round[exi];
+        var reps = parseFloat(e.reps) || 0;
+        var weight = parseFloat(e.weight) || 0;
+        totalReps += reps;
+        totalVolume += reps * weight;
+      });
+      grandReps += totalReps;
+      grandVolume += totalVolume;
+      body += "<tr><td>"+escapeHtml(name)+"</td><td>"+totalReps+"</td><td>"+Math.round(totalVolume).toLocaleString()+" lb</td></tr>";
+    });
+    table.innerHTML = head + body;
+
+    var summary = document.createElement("p");
+    summary.className = "day-nav-label";
+    summary.style.margin = "8px 0";
+    summary.innerHTML = "Session total: " + grandReps + " reps &middot; " + Math.round(grandVolume).toLocaleString() + " lb moved";
+
+    var title = document.createElement("p");
+    title.className = "superset-title";
+    title.style.margin = "0 0 6px";
+    title.textContent = "Totals (" + rec.roundsCompleted + " rounds × reps × weight)";
+
+    wrap.appendChild(title);
+    wrap.appendChild(table);
+    wrap.appendChild(summary);
+    return wrap;
+  }
+
+  function buildHistoryTable(rec){
+    var table = document.createElement("table");
+    var flat = rec.rounds.length ? rec.rounds[0].map(function(e){ return e.name; }) : [];
+    var head = "<tr><th>Exercise</th>";
+    rec.rounds.forEach(function(_, ri){ head += "<th>R"+(ri+1)+"</th>"; });
+    head += "</tr>";
+    var body = "";
+    flat.forEach(function(name, exi){
+      body += "<tr><td>"+escapeHtml(name)+"</td>";
+      rec.rounds.forEach(function(round){
+        var e = round[exi];
+        body += "<td>"+(e.weight||"-")+"&times;"+(e.reps||"-")+"</td>";
+      });
+      body += "</tr>";
+    });
+    table.innerHTML = head + body;
+    return table;
+  }
+
+  // ---------- Log a Past Workout (manual/retroactive History entry) ----------
+  function todayLocalDateStr(){
+    var d = new Date();
+    return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  }
+
+  function populateManualDaySelect(){
+    var sel = document.getElementById("manualDaySelect");
+    sel.innerHTML = "";
+    for(var d = 1; d <= 7; d++){
+      if(DAY_META[d].type === "rest") continue;
+      var opt = document.createElement("option");
+      opt.value = String(d);
+      opt.textContent = "Day " + d + ": " + DAY_META[d].label;
+      sel.appendChild(opt);
+    }
+  }
+
+  function updateManualFormForDay(){
+    var day = parseInt(document.getElementById("manualDaySelect").value, 10);
+    var meta = DAY_META[day];
+    var row = document.getElementById("manualRoundsRow");
+    var label = document.getElementById("manualRoundsLabel");
+    if(meta.type === "timed"){
+      row.style.display = "none"; // a continuous set has no round count to enter
+    } else {
+      row.style.display = "";
+      label.textContent = meta.type === "interval" ? "Sets Completed" : "Rounds Completed";
+    }
+  }
+
+  // Builds N identical rounds from whatever's currently set up for that day (exercise
+  // names, rep targets, and starting weight) — the best approximation we have for a
+  // workout that wasn't logged live, since there's no round-by-round data to go on.
+  function buildManualRounds(day, meta, roundsCount){
+    var flat = flattenFromDayData(config.days[day], meta.type);
+    var rounds = [];
+    for(var r = 0; r < roundsCount; r++){
+      rounds.push(flat.map(function(ex){
+        return { name: ex.name, targetReps: ex.targetReps, weight: ex.targetWeight, reps: ex.targetReps };
+      }));
+    }
+    return rounds;
+  }
+
+  document.getElementById("manualHistoryToggle").addEventListener("click", function(){
+    var fields = document.getElementById("manualHistoryFields");
+    var chevron = document.getElementById("manualHistoryChevron");
+    var open = fields.style.display !== "none";
+    fields.style.display = open ? "none" : "block";
+    chevron.textContent = open ? "▸ Show" : "▾ Hide";
+  });
+
+  document.getElementById("manualDaySelect").addEventListener("change", updateManualFormForDay);
+
+  document.getElementById("manualAddBtn").addEventListener("click", function(){
+    var day = parseInt(document.getElementById("manualDaySelect").value, 10);
+    var meta = DAY_META[day];
+    var dateStr = document.getElementById("manualDateInput").value;
+    var durationMin = parseFloat(document.getElementById("manualDurationInput").value);
+    var intensity = document.getElementById("manualIntensitySelect").value;
+    var roundsInput = parseInt(document.getElementById("manualRoundsInput").value, 10);
+
+    if(!dateStr || !durationMin || durationMin <= 0){
+      alert("Please fill in at least a date and duration.");
+      return;
+    }
+
+    var elapsedSec = Math.round(durationMin * 60);
+    var roundsCompleted, totalSets = null, workSec = null, restSec = null;
+
+    if(meta.type === "timed"){
+      roundsCompleted = 1;
+    } else if(meta.type === "interval"){
+      if(!roundsInput || roundsInput <= 0){ alert("Please enter sets completed."); return; }
+      roundsCompleted = roundsInput;
+      var timing = getIntervalTiming(day);
+      workSec = timing.workSec;
+      restSec = timing.restSec;
+      totalSets = computeIntervalSets(workSec, restSec, durationMin);
+    } else {
+      if(!roundsInput || roundsInput <= 0){ alert("Please enter rounds completed."); return; }
+      roundsCompleted = roundsInput;
+    }
+
+    var rounds = buildManualRounds(day, meta, roundsCompleted);
+    var roundsForCalorie = meta.type === "timed" ? 0 : roundsCompleted;
+    var calories = estimateWorkoutCalories(day, elapsedSec, intensity, roundsForCalorie);
+    var dateObj = new Date(dateStr + "T12:00:00");
+
+    var record = {
+      date: dateObj.toISOString(),
+      day: day,
+      dayLabel: meta.label,
+      dayType: meta.type,
+      capMin: Math.round(durationMin),
+      elapsedSec: elapsedSec,
+      roundsCompleted: roundsCompleted,
+      totalSets: totalSets,
+      workSec: workSec,
+      restSec: restSec,
+      rounds: rounds,
+      intensity: intensity,
+      calories: calories
+    };
+
+    var history = loadHistory();
+    history.unshift(record);
+    // manual entries can land on a past date, so keep the list in chronological order
+    history.sort(function(a, b){ return new Date(b.date) - new Date(a.date); });
+    saveHistory(history);
+    renderHistory();
+
+    document.getElementById("manualDurationInput").value = "";
+    document.getElementById("manualRoundsInput").value = "";
+    alert("Added to History.");
+  });
+
+  // ---------- init ----------
+  document.getElementById("timeCapSelect").value = String(config.defaultCapMin);
+  document.getElementById("capLabel").textContent = config.defaultCapMin;
+  populateDaySelect("dayBanner");
+  populateDaySelect("workoutDayBanner");
+  populateManualDaySelect();
+  document.getElementById("manualDateInput").value = todayLocalDateStr();
+  updateManualFormForDay();
+  populateTimerSoundSelect();
+  document.getElementById("quickTimerDuration").value = String(quickTimer.duration);
+  renderQuickTimer();
+  restoreSession();
+  if(!session) resetToIdle();
+  renderSetup();
+  renderProfile();
+  renderCaloriesToday();
+
+})();
+</script>
+
+</body>
+</html>
