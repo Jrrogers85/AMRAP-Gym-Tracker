@@ -405,6 +405,7 @@
   var STORAGE_CONFIG = "amrap_config_v1";
   var STORAGE_HISTORY = "amrap_history_v1";
   var STORAGE_SESSION = "amrap_active_session_v1";
+  var STORAGE_SYNC_META = "amrap_sync_meta_v1";
 
   // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
   var PUSH_EXERCISES = [
@@ -615,13 +616,28 @@
   var cloudDb = null;
   var cloudUid = null;
 
+  // Tracks the updatedAt timestamp of the last data we know matches the cloud (either
+  // because we just pushed it, or just pulled it). Comparing timestamps — instead of
+  // comparing the actual JSON content — avoids false "it changed!" positives caused by
+  // Firestore not always preserving object field order on a round trip, which previously
+  // caused a reload loop (every load looked "different" even when nothing had changed).
+  function getLastSyncedAt(){
+    try{ var m = JSON.parse(localStorage.getItem(STORAGE_SYNC_META) || "{}"); return m.lastSyncedAt || 0; }catch(e){ return 0; }
+  }
+  function setLastSyncedAt(ts){
+    try{ localStorage.setItem(STORAGE_SYNC_META, JSON.stringify({ lastSyncedAt: ts })); }catch(e){}
+  }
+
   function cloudPush(cfgArg, histArg){
     if(!cloudDb || !cloudUid) return;
     try{
+      var ts = Date.now();
       cloudDb.collection("users").doc(cloudUid).set({
         config: cfgArg !== undefined ? cfgArg : config,
         history: histArg !== undefined ? histArg : loadHistory(),
-        updatedAt: Date.now()
+        updatedAt: ts
+      }).then(function(){
+        setLastSyncedAt(ts);
       }).catch(function(){});
     }catch(e){}
   }
@@ -639,14 +655,26 @@
           if(doc.exists){
             var data = doc.data();
             if(!data || !data.config) return;
+            var cloudTs = data.updatedAt || 0;
+            var lastSyncedAt = getLastSyncedAt();
             var hasActiveSession = false;
             try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
-            var differs = (JSON.stringify(data.config) !== JSON.stringify(config)) ||
-                          (JSON.stringify(data.history || []) !== JSON.stringify(loadHistory()));
-            if(differs && !hasActiveSession){
-              saveConfig(data.config);
-              saveHistory(data.history || []);
+            // Only pull the cloud copy down if it's genuinely newer than the last version
+            // this device already knows about, and only reload once per page load (guarded
+            // via sessionStorage) so a slow network or repeat calls can never loop.
+            var alreadyReloadedThisLoad = false;
+            try{ alreadyReloadedThisLoad = sessionStorage.getItem("amrap_sync_reloaded") === "1"; }catch(e){}
+            if(cloudTs > lastSyncedAt && !hasActiveSession && !alreadyReloadedThisLoad){
+              try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
+              try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
+              setLastSyncedAt(cloudTs);
+              try{ sessionStorage.setItem("amrap_sync_reloaded", "1"); }catch(e){}
               location.reload();
+            } else if(cloudTs > lastSyncedAt){
+              // Newer cloud data exists but we skipped pulling it (active session, or
+              // already reloaded once this load) — still record it so we don't keep
+              // treating it as "new" every time this check runs.
+              setLastSyncedAt(cloudTs);
             }
           } else {
             cloudPush();
