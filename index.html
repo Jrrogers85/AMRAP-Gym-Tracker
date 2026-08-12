@@ -679,34 +679,38 @@
     try{ localStorage.setItem(STORAGE_SYNC_META, JSON.stringify({ lastSyncedAt: ts })); }catch(e){}
   }
 
-  // Firestore's SDK throws (synchronously, not as a rejected promise) if a write payload
-  // contains `undefined` anywhere, even nested deep inside an array/object. That throw was
-  // getting silently swallowed by a try/catch here, so an entire save (e.g. a just-completed
-  // workout's history entry) could quietly never reach the cloud at all. Stripping undefined
-  // -> null first means a write can never fail for this reason again.
-  function sanitizeForFirestore(value){
-    if(value === undefined) return null;
-    if(value === null || typeof value !== "object") return value;
-    if(Array.isArray(value)) return value.map(sanitizeForFirestore);
-    var out = {};
-    for(var k in value){
-      if(Object.prototype.hasOwnProperty.call(value, k)) out[k] = sanitizeForFirestore(value[k]);
+  // Firestore rejects certain JS data shapes outright as a document field — `undefined`
+  // anywhere in the payload, and (learned the hard way) an array that directly contains
+  // another array, which is exactly how a workout's `rounds` data is shaped. Rather than
+  // hunting down and special-casing every shape Firestore does or doesn't like, we sidestep
+  // the whole category of problem: store the entire config+history payload as ONE plain JSON
+  // string field. Firestore only ever sees a string, so none of its structural rules apply.
+  function extractCloudPayload(data){
+    if(!data) return null;
+    if(typeof data.blob === "string"){
+      try{ return JSON.parse(data.blob); }catch(e){ return null; }
     }
-    return out;
+    // Backward compatible with documents written before this change (structured fields
+    // instead of a blob) — reads them fine; the next push converts them to the new shape.
+    if(data.config){ return { config: data.config, history: data.history || [] }; }
+    return null;
   }
 
   function cloudPush(cfgArg, histArg){
     if(!cloudDb || !cloudAuthed){ console.warn("[AMRAP sync] push skipped — not connected yet"); return; }
     try{
       var ts = Date.now();
-      var pushedHistoryLen = (histArg !== undefined ? histArg : loadHistory()).length;
-      cloudDb.collection("users").doc(getSyncCode()).set(sanitizeForFirestore({
+      var payloadHistory = histArg !== undefined ? histArg : loadHistory();
+      var blob = JSON.stringify({
         config: cfgArg !== undefined ? cfgArg : config,
-        history: histArg !== undefined ? histArg : loadHistory(),
+        history: payloadHistory
+      });
+      cloudDb.collection("users").doc(getSyncCode()).set({
+        blob: blob,
         updatedAt: ts
-      })).then(function(){
+      }).then(function(){
         setLastSyncedAt(ts);
-        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + pushedHistoryLen + " history entries, ts " + ts);
+        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + payloadHistory.length + " history entries, ts " + ts);
       }).catch(function(err){
         console.error("[AMRAP sync] push FAILED — code " + getSyncCode() + ":", err);
       });
@@ -724,9 +728,10 @@
         cloudPush();
         return;
       }
-      var data = doc.data();
+      var raw = doc.data();
+      var data = extractCloudPayload(raw);
       if(!data || !data.config){
-        console.warn("[AMRAP sync] cloud document exists but has no config — ignoring it.", data);
+        console.warn("[AMRAP sync] cloud document exists but couldn't be read — ignoring it.", raw);
         return;
       }
 
@@ -743,7 +748,7 @@
       var localGainedEntries = merged.length > localHistory.length;
       var cloudGainedEntries = merged.length > cloudHistory.length;
 
-      var cloudTs = data.updatedAt || 0;
+      var cloudTs = raw.updatedAt || 0;
       var lastSyncedAt = getLastSyncedAt();
       var configIsNewer = cloudTs > lastSyncedAt;
 
@@ -791,22 +796,22 @@
     try{ sessionStorage.removeItem("amrap_sync_reloaded"); }catch(e){}
     if(!cloudDb || !cloudAuthed){ location.reload(); return; }
     cloudDb.collection("users").doc(code).get().then(function(doc){
-      if(doc.exists && doc.data() && doc.data().config){
-        var data = doc.data();
+      var raw = doc.exists ? doc.data() : null;
+      var data = extractCloudPayload(raw);
+      if(data && data.config){
         try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
         try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
-        setLastSyncedAt(data.updatedAt || Date.now());
+        setLastSyncedAt((raw && raw.updatedAt) || Date.now());
         location.reload();
       } else {
         // Nothing saved under this code yet — push this device's current data as the
         // starting point, but WAIT for that write to finish before reloading, so it
         // can't get cut off mid-flight by the page navigating away.
         var ts = Date.now();
-        cloudDb.collection("users").doc(code).set(sanitizeForFirestore({
-          config: config,
-          history: loadHistory(),
+        cloudDb.collection("users").doc(code).set({
+          blob: JSON.stringify({ config: config, history: loadHistory() }),
           updatedAt: ts
-        })).then(function(){
+        }).then(function(){
           setLastSyncedAt(ts);
         }).catch(function(){}).then(function(){
           location.reload();
