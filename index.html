@@ -1882,28 +1882,28 @@
     return "data:audio/wav;base64," + btoa(binary);
   }
 
+  // NOTE: this used to loop the silent track forever and request the "playback" audio
+  // session category, which fixed the silent-switch issue but had a side effect — iOS
+  // treated the tab as continuously "now playing" and paused podcasts/music in other apps.
+  // Fix: play the silent clip once (not looped) just to "prime" the session, then let it
+  // end, and don't force the exclusive "playback" category. This keeps beeps audible in
+  // silent mode without stopping whatever else is already playing.
   var silentUnlockAudio = null;
   function unlockIOSAudioSession(){
     if(silentUnlockAudio) return;
     try{
       silentUnlockAudio = document.createElement("audio");
-      silentUnlockAudio.loop = true;
+      silentUnlockAudio.loop = false;
       silentUnlockAudio.setAttribute("playsinline", "");
       silentUnlockAudio.src = buildSilentWavDataUrl();
       silentUnlockAudio.play().then(function(){
-        console.log("[AMRAP sound] silent unlock track playing — this should let beeps through even in silent mode.");
+        console.log("[AMRAP sound] silent unlock track played once — this should let beeps through even in silent mode, without blocking other audio.");
       }).catch(function(err){
         console.warn("[AMRAP sound] silent unlock track failed to play:", err);
       });
     }catch(err){
       console.warn("[AMRAP sound] couldn't build/play silent unlock track:", err);
     }
-    // Newer, official-ish path: Safari added an experimental AudioSession API that lets a
-    // page directly request the "playback" category (the same one video/audio apps use,
-    // which iOS exempts from the mute switch). Harmless progressive enhancement if present.
-    try{
-      if(navigator.audioSession) navigator.audioSession.type = "playback";
-    }catch(err){}
   }
   document.addEventListener("touchstart", unlockIOSAudioSession, { once: true, passive: true });
   document.addEventListener("click", unlockIOSAudioSession, { once: true });
