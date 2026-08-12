@@ -657,15 +657,31 @@
     try{ localStorage.setItem(STORAGE_SYNC_META, JSON.stringify({ lastSyncedAt: ts })); }catch(e){}
   }
 
+  // Firestore's SDK throws (synchronously, not as a rejected promise) if a write payload
+  // contains `undefined` anywhere, even nested deep inside an array/object. That throw was
+  // getting silently swallowed by a try/catch here, so an entire save (e.g. a just-completed
+  // workout's history entry) could quietly never reach the cloud at all. Stripping undefined
+  // -> null first means a write can never fail for this reason again.
+  function sanitizeForFirestore(value){
+    if(value === undefined) return null;
+    if(value === null || typeof value !== "object") return value;
+    if(Array.isArray(value)) return value.map(sanitizeForFirestore);
+    var out = {};
+    for(var k in value){
+      if(Object.prototype.hasOwnProperty.call(value, k)) out[k] = sanitizeForFirestore(value[k]);
+    }
+    return out;
+  }
+
   function cloudPush(cfgArg, histArg){
     if(!cloudDb || !cloudAuthed) return;
     try{
       var ts = Date.now();
-      cloudDb.collection("users").doc(getSyncCode()).set({
+      cloudDb.collection("users").doc(getSyncCode()).set(sanitizeForFirestore({
         config: cfgArg !== undefined ? cfgArg : config,
         history: histArg !== undefined ? histArg : loadHistory(),
         updatedAt: ts
-      }).then(function(){
+      })).then(function(){
         setLastSyncedAt(ts);
       }).catch(function(){});
     }catch(e){}
@@ -686,12 +702,23 @@
         // via sessionStorage) so a slow network or repeat calls can never loop.
         var alreadyReloadedThisLoad = false;
         try{ alreadyReloadedThisLoad = sessionStorage.getItem("amrap_sync_reloaded") === "1"; }catch(e){}
-        if(cloudTs > lastSyncedAt && !hasActiveSession && !alreadyReloadedThisLoad){
+        // Safety net: if the cloud copy has FEWER history entries than we already have
+        // locally, something went wrong upstream (e.g. a save that silently failed to
+        // fully reach the cloud) — don't let it wipe out local data. Treat local as the
+        // more trustworthy copy and push it back up instead of pulling the smaller one down.
+        var localHistoryLen = loadHistory().length;
+        var cloudHistoryLen = (data.history || []).length;
+        var cloudLooksIncomplete = cloudHistoryLen < localHistoryLen;
+        if(cloudTs > lastSyncedAt && !hasActiveSession && !alreadyReloadedThisLoad && !cloudLooksIncomplete){
           try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
           try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
           setLastSyncedAt(cloudTs);
           try{ sessionStorage.setItem("amrap_sync_reloaded", "1"); }catch(e){}
           location.reload();
+        } else if(cloudTs > lastSyncedAt && cloudLooksIncomplete){
+          // Cloud is "newer" but has less history than we do — re-push our local copy
+          // (which has more data) so the cloud gets corrected instead of us losing data.
+          cloudPush();
         } else if(cloudTs > lastSyncedAt){
           // Newer cloud data exists but we skipped pulling it (active session, or
           // already reloaded once this load) — still record it so we don't keep
@@ -724,11 +751,11 @@
         // starting point, but WAIT for that write to finish before reloading, so it
         // can't get cut off mid-flight by the page navigating away.
         var ts = Date.now();
-        cloudDb.collection("users").doc(code).set({
+        cloudDb.collection("users").doc(code).set(sanitizeForFirestore({
           config: config,
           history: loadHistory(),
           updatedAt: ts
-        }).then(function(){
+        })).then(function(){
           setLastSyncedAt(ts);
         }).catch(function(){}).then(function(){
           location.reload();
