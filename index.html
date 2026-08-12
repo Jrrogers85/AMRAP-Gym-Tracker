@@ -696,29 +696,43 @@
   }
 
   function cloudPush(cfgArg, histArg){
-    if(!cloudDb || !cloudAuthed) return;
+    if(!cloudDb || !cloudAuthed){ console.warn("[AMRAP sync] push skipped — not connected yet"); return; }
     try{
       var ts = Date.now();
+      var pushedHistoryLen = (histArg !== undefined ? histArg : loadHistory()).length;
       cloudDb.collection("users").doc(getSyncCode()).set(sanitizeForFirestore({
         config: cfgArg !== undefined ? cfgArg : config,
         history: histArg !== undefined ? histArg : loadHistory(),
         updatedAt: ts
       })).then(function(){
         setLastSyncedAt(ts);
-      }).catch(function(){});
-    }catch(e){}
+        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + pushedHistoryLen + " history entries, ts " + ts);
+      }).catch(function(err){
+        console.error("[AMRAP sync] push FAILED — code " + getSyncCode() + ":", err);
+      });
+    }catch(err){
+      console.error("[AMRAP sync] push threw before reaching the network — code " + getSyncCode() + ":", err);
+    }
   }
 
   function cloudPullOnce(){
-    if(!cloudDb || !cloudAuthed) return;
+    if(!cloudDb || !cloudAuthed){ console.warn("[AMRAP sync] pull skipped — not connected yet"); return; }
+    console.log("[AMRAP sync] checking cloud for code " + getSyncCode() + " …");
     cloudDb.collection("users").doc(getSyncCode()).get().then(function(doc){
-      if(!doc.exists){ cloudPush(); return; }
+      if(!doc.exists){
+        console.log("[AMRAP sync] no cloud document yet for code " + getSyncCode() + " — pushing this device's data as the starting point.");
+        cloudPush();
+        return;
+      }
       var data = doc.data();
-      if(!data || !data.config) return;
+      if(!data || !data.config){
+        console.warn("[AMRAP sync] cloud document exists but has no config — ignoring it.", data);
+        return;
+      }
 
       var hasActiveSession = false;
       try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
-      if(hasActiveSession) return; // never touch local data mid-workout
+      if(hasActiveSession){ console.log("[AMRAP sync] skipping — a workout is in progress on this device."); return; }
 
       // History merges rather than "whoever synced last wins" — that's what lets you log a
       // workout on your phone AND your laptop without refreshing in between and have BOTH
@@ -732,6 +746,9 @@
       var cloudTs = data.updatedAt || 0;
       var lastSyncedAt = getLastSyncedAt();
       var configIsNewer = cloudTs > lastSyncedAt;
+
+      console.log("[AMRAP sync] cloud check — local history: " + localHistory.length + ", cloud history: " + cloudHistory.length +
+        ", merged: " + merged.length + ", cloudTs: " + cloudTs + ", lastSyncedAt: " + lastSyncedAt);
 
       var localChanged = false;
       if(localGainedEntries){
@@ -760,7 +777,9 @@
           location.reload();
         }
       }
-    }).catch(function(){});
+    }).catch(function(err){
+      console.error("[AMRAP sync] pull FAILED — code " + getSyncCode() + ":", err);
+    });
   }
 
   // Adopts another device's sync code: this device's local data is replaced with
@@ -797,17 +816,25 @@
   }
 
   function cloudSyncOnLoad(){
-    if(typeof firebase === "undefined") return;
+    if(typeof firebase === "undefined"){
+      console.error("[AMRAP sync] Firebase SDK never loaded — check for an ad blocker or content blocker preventing gstatic.com scripts from loading.");
+      return;
+    }
     try{
       if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-      firebase.auth().signInAnonymously().catch(function(){});
+      firebase.auth().signInAnonymously().catch(function(err){
+        console.error("[AMRAP sync] anonymous sign-in FAILED:", err);
+      });
       firebase.auth().onAuthStateChanged(function(user){
-        if(!user) return;
+        if(!user){ console.warn("[AMRAP sync] onAuthStateChanged fired with no user."); return; }
         cloudAuthed = true;
         cloudDb = firebase.firestore();
+        console.log("[AMRAP sync] signed in OK (uid " + user.uid + "), sync code is " + getSyncCode());
         cloudPullOnce();
       });
-    }catch(e){}
+    }catch(err){
+      console.error("[AMRAP sync] setup threw an error:", err);
+    }
   }
   cloudSyncOnLoad();
 
