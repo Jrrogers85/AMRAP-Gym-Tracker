@@ -1849,18 +1849,86 @@
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
   }
 
+  // ---------- Try to make sound audible even with the iPhone's silent switch flipped ----------
+  // iOS silences Web Audio API tones (what this app's beeps use) whenever the hardware
+  // mute switch is on — but NOT a real HTML5 <audio> element. The common workaround: play a
+  // silent, looping <audio> track starting on the very first tap anywhere in the app, which
+  // "primes" the browser's audio session so the Web Audio tones become audible too, even
+  // with the switch muted. This is a widely used trick, not an official guarantee — Apple
+  // doesn't document or promise it, so it can behave differently across iOS versions.
+  function buildSilentWavDataUrl(){
+    var sampleRate = 8000, seconds = 1, numSamples = sampleRate * seconds, headerSize = 44;
+    var buffer = new ArrayBuffer(headerSize + numSamples);
+    var view = new DataView(buffer);
+    function writeString(offset, str){ for(var i=0;i<str.length;i++){ view.setUint8(offset+i, str.charCodeAt(i)); } }
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + numSamples, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate, true);
+    view.setUint16(32, 1, true);
+    view.setUint16(34, 8, true);
+    writeString(36, "data");
+    view.setUint32(40, numSamples, true);
+    var pcm = new Uint8Array(buffer, headerSize);
+    for(var i = 0; i < numSamples; i++){ pcm[i] = 128; } // 128 = silence for 8-bit unsigned PCM
+    var bytes = new Uint8Array(buffer);
+    var binary = "";
+    for(var j = 0; j < bytes.length; j++){ binary += String.fromCharCode(bytes[j]); }
+    return "data:audio/wav;base64," + btoa(binary);
+  }
+
+  var silentUnlockAudio = null;
+  function unlockIOSAudioSession(){
+    if(silentUnlockAudio) return;
+    try{
+      silentUnlockAudio = document.createElement("audio");
+      silentUnlockAudio.loop = true;
+      silentUnlockAudio.setAttribute("playsinline", "");
+      silentUnlockAudio.src = buildSilentWavDataUrl();
+      silentUnlockAudio.play().then(function(){
+        console.log("[AMRAP sound] silent unlock track playing — this should let beeps through even in silent mode.");
+      }).catch(function(err){
+        console.warn("[AMRAP sound] silent unlock track failed to play:", err);
+      });
+    }catch(err){
+      console.warn("[AMRAP sound] couldn't build/play silent unlock track:", err);
+    }
+    // Newer, official-ish path: Safari added an experimental AudioSession API that lets a
+    // page directly request the "playback" category (the same one video/audio apps use,
+    // which iOS exempts from the mute switch). Harmless progressive enhancement if present.
+    try{
+      if(navigator.audioSession) navigator.audioSession.type = "playback";
+    }catch(err){}
+  }
+  document.addEventListener("touchstart", unlockIOSAudioSession, { once: true, passive: true });
+  document.addEventListener("click", unlockIOSAudioSession, { once: true });
+
   // ---------- Quick Timer (manual, up to 1 minute, selectable alert sound) ----------
   var sharedAudioCtx = null;
   function getAudioCtx(){
     if(!sharedAudioCtx){
       sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      console.log("[AMRAP sound] created AudioContext, initial state:", sharedAudioCtx.state);
     }
-    if(sharedAudioCtx.state === "suspended") sharedAudioCtx.resume();
+    if(sharedAudioCtx.state === "suspended"){
+      console.log("[AMRAP sound] context was suspended, resuming…");
+      sharedAudioCtx.resume().then(function(){
+        console.log("[AMRAP sound] resume() resolved, state now:", sharedAudioCtx.state);
+      }).catch(function(err){
+        console.error("[AMRAP sound] resume() FAILED:", err);
+      });
+    }
     return sharedAudioCtx;
   }
   function playTone(freq, delay, duration, waveType, gainVal){
     try{
       var ctx = getAudioCtx();
+      console.log("[AMRAP sound] playTone — context state:", ctx.state, "freq:", freq);
       var o = ctx.createOscillator();
       var g = ctx.createGain();
       o.type = waveType || "sine";
@@ -1870,7 +1938,9 @@
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
       o.start(ctx.currentTime + delay);
       o.stop(ctx.currentTime + delay + duration + 0.05);
-    }catch(e){}
+    }catch(err){
+      console.error("[AMRAP sound] playTone threw an error:", err);
+    }
   }
 
   var TIMER_SOUNDS = {
