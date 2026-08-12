@@ -388,6 +388,18 @@
       <p class="muted" style="font-size:12px; margin-top:0;">Downloads everything &mdash; your Setup (exercises, reps, weights, Day 6 timing), Profile stats, and full workout History &mdash; as one file. Worth keeping somewhere safe in case you switch phones or ever clear Safari's data.</p>
       <button class="secondary" id="exportBackupBtn" style="margin-top:0;">📤 Export Backup</button>
     </div>
+
+    <div class="card" id="syncCodeCard">
+      <h2>Sync Across Devices</h2>
+      <p class="muted" style="font-size:12px; margin-top:0;">Each device tracks separately by default (so a friend using this same link stays totally independent). To make your OWN phone and laptop share one history, view this code on one device and enter it on the other.</p>
+      <p class="day-nav-label" style="margin-top:10px;">This device's code</p>
+      <p id="syncCodeDisplay" style="font-size:28px; font-weight:700; letter-spacing:4px; margin:4px 0 14px;">&hellip;</p>
+      <p class="day-nav-label" style="margin-top:0;">Have a code from another device?</p>
+      <div class="exercise-row">
+        <input type="text" id="syncCodeInput" placeholder="ABC123" maxlength="6" style="text-transform:uppercase; letter-spacing:2px;">
+        <button class="secondary" id="syncCodeConnectBtn">Connect</button>
+      </div>
+    </div>
   </section>
 
 </main>
@@ -406,6 +418,7 @@
   var STORAGE_HISTORY = "amrap_history_v1";
   var STORAGE_SESSION = "amrap_active_session_v1";
   var STORAGE_SYNC_META = "amrap_sync_meta_v1";
+  var STORAGE_SYNC_CODE = "amrap_sync_code_v1";
 
   // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
   var PUSH_EXERCISES = [
@@ -602,8 +615,10 @@
 
   // ---------- Cloud sync (Firebase) ----------
   // Backs up Setup + History to Firestore so data survives iOS wiping local browser
-  // storage for home-screen web apps. Each device signs in anonymously and gets its
-  // own Firebase user, so your data and a friend's on the same URL stay separate.
+  // storage for home-screen web apps. Each device is identified by a short "sync code"
+  // (not by who's using it), so a friend on the same URL gets his own separate code and
+  // data automatically — and you can put your OWN two devices on the same code (via the
+  // "Connect" box in Profile) so they share one history instead of tracking separately.
   var FIREBASE_CONFIG = {
     apiKey: "AIzaSyBkBmJ9OSDu3ei3aiwCL9V4fRCFu0unQyI",
     authDomain: "amrap-gym-tracker.firebaseapp.com",
@@ -614,7 +629,23 @@
     measurementId: "G-X9QERVZTCM"
   };
   var cloudDb = null;
-  var cloudUid = null;
+  var cloudAuthed = false;
+  var SYNC_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no O/0/I/1 — avoids look-alike mixups
+
+  function generateSyncCode(){
+    var code = "";
+    for(var i = 0; i < 6; i++){ code += SYNC_CODE_CHARS.charAt(Math.floor(Math.random() * SYNC_CODE_CHARS.length)); }
+    return code;
+  }
+  function getSyncCode(){
+    var code = null;
+    try{ code = localStorage.getItem(STORAGE_SYNC_CODE); }catch(e){}
+    if(!code){
+      code = generateSyncCode();
+      try{ localStorage.setItem(STORAGE_SYNC_CODE, code); }catch(e){}
+    }
+    return code;
+  }
 
   // Tracks the updatedAt timestamp of the last data we know matches the cloud (either
   // because we just pushed it, or just pulled it). Comparing timestamps — instead of
@@ -629,10 +660,10 @@
   }
 
   function cloudPush(cfgArg, histArg){
-    if(!cloudDb || !cloudUid) return;
+    if(!cloudDb || !cloudAuthed) return;
     try{
       var ts = Date.now();
-      cloudDb.collection("users").doc(cloudUid).set({
+      cloudDb.collection("users").doc(getSyncCode()).set({
         config: cfgArg !== undefined ? cfgArg : config,
         history: histArg !== undefined ? histArg : loadHistory(),
         updatedAt: ts
@@ -642,6 +673,60 @@
     }catch(e){}
   }
 
+  function cloudPullOnce(){
+    if(!cloudDb || !cloudAuthed) return;
+    cloudDb.collection("users").doc(getSyncCode()).get().then(function(doc){
+      if(doc.exists){
+        var data = doc.data();
+        if(!data || !data.config) return;
+        var cloudTs = data.updatedAt || 0;
+        var lastSyncedAt = getLastSyncedAt();
+        var hasActiveSession = false;
+        try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
+        // Only pull the cloud copy down if it's genuinely newer than the last version
+        // this device already knows about, and only reload once per page load (guarded
+        // via sessionStorage) so a slow network or repeat calls can never loop.
+        var alreadyReloadedThisLoad = false;
+        try{ alreadyReloadedThisLoad = sessionStorage.getItem("amrap_sync_reloaded") === "1"; }catch(e){}
+        if(cloudTs > lastSyncedAt && !hasActiveSession && !alreadyReloadedThisLoad){
+          try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
+          try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
+          setLastSyncedAt(cloudTs);
+          try{ sessionStorage.setItem("amrap_sync_reloaded", "1"); }catch(e){}
+          location.reload();
+        } else if(cloudTs > lastSyncedAt){
+          // Newer cloud data exists but we skipped pulling it (active session, or
+          // already reloaded once this load) — still record it so we don't keep
+          // treating it as "new" every time this check runs.
+          setLastSyncedAt(cloudTs);
+        }
+      } else {
+        cloudPush();
+      }
+    }).catch(function(){});
+  }
+
+  // Adopts another device's sync code: this device's local data is replaced with
+  // whatever that code's cloud history is (or, if the code is brand new, this device's
+  // current data becomes the starting point for it). Used by the "Connect" box in Profile.
+  function connectToSyncCode(code){
+    try{ localStorage.setItem(STORAGE_SYNC_CODE, code); }catch(e){}
+    setLastSyncedAt(0);
+    try{ sessionStorage.removeItem("amrap_sync_reloaded"); }catch(e){}
+    if(!cloudDb || !cloudAuthed){ location.reload(); return; }
+    cloudDb.collection("users").doc(code).get().then(function(doc){
+      if(doc.exists && doc.data() && doc.data().config){
+        var data = doc.data();
+        try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
+        try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
+        setLastSyncedAt(data.updatedAt || Date.now());
+      } else {
+        cloudPush();
+      }
+      location.reload();
+    }).catch(function(){ location.reload(); });
+  }
+
   function cloudSyncOnLoad(){
     if(typeof firebase === "undefined") return;
     try{
@@ -649,37 +734,9 @@
       firebase.auth().signInAnonymously().catch(function(){});
       firebase.auth().onAuthStateChanged(function(user){
         if(!user) return;
-        cloudUid = user.uid;
+        cloudAuthed = true;
         cloudDb = firebase.firestore();
-        cloudDb.collection("users").doc(cloudUid).get().then(function(doc){
-          if(doc.exists){
-            var data = doc.data();
-            if(!data || !data.config) return;
-            var cloudTs = data.updatedAt || 0;
-            var lastSyncedAt = getLastSyncedAt();
-            var hasActiveSession = false;
-            try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
-            // Only pull the cloud copy down if it's genuinely newer than the last version
-            // this device already knows about, and only reload once per page load (guarded
-            // via sessionStorage) so a slow network or repeat calls can never loop.
-            var alreadyReloadedThisLoad = false;
-            try{ alreadyReloadedThisLoad = sessionStorage.getItem("amrap_sync_reloaded") === "1"; }catch(e){}
-            if(cloudTs > lastSyncedAt && !hasActiveSession && !alreadyReloadedThisLoad){
-              try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
-              try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
-              setLastSyncedAt(cloudTs);
-              try{ sessionStorage.setItem("amrap_sync_reloaded", "1"); }catch(e){}
-              location.reload();
-            } else if(cloudTs > lastSyncedAt){
-              // Newer cloud data exists but we skipped pulling it (active session, or
-              // already reloaded once this load) — still record it so we don't keep
-              // treating it as "new" every time this check runs.
-              setLastSyncedAt(cloudTs);
-            }
-          } else {
-            cloudPush();
-          }
-        }).catch(function(){});
+        cloudPullOnce();
       });
     }catch(e){}
   }
@@ -1839,6 +1896,7 @@
     document.getElementById("profileHeightIn").value = p.heightIn || "";
     document.getElementById("profileWeight").value = p.weightLb || "";
     updateBMRDisplay();
+    document.getElementById("syncCodeDisplay").textContent = getSyncCode();
   }
 
   function updateBMRDisplay(){
@@ -1881,6 +1939,22 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+  });
+
+  document.getElementById("syncCodeConnectBtn").addEventListener("click", function(){
+    var input = document.getElementById("syncCodeInput");
+    var code = (input.value || "").trim().toUpperCase();
+    if(code.length !== 6){
+      alert("Enter the full 6-character code shown on your other device.");
+      return;
+    }
+    if(code === getSyncCode()){
+      alert("That's already this device's code.");
+      return;
+    }
+    var ok = confirm("Connecting will replace THIS device's Setup and History with whatever is saved under code " + code + ". Make sure that's the device you want to match. Continue?");
+    if(!ok) return;
+    connectToSyncCode(code);
   });
 
   // ---------- History screen ----------
