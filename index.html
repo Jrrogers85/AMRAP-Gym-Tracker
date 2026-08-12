@@ -417,6 +417,7 @@
   var STORAGE_SESSION = "amrap_active_session_v1";
   var STORAGE_SYNC_META = "amrap_sync_meta_v1";
   var STORAGE_SYNC_CODE = "amrap_sync_code_v1";
+  var STORAGE_DELETED_IDS = "amrap_deleted_ids_v1";
 
   // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
   var PUSH_EXERCISES = [
@@ -631,6 +632,27 @@
   }
   function saveHistory(h){ try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(h)); }catch(e){} cloudPush(undefined, h); }
 
+  // "Tombstones" — a record of every history entry that's been deliberately deleted (via
+  // the single-entry delete button, or Clear All). Without this, merging would treat a
+  // deletion exactly like data loss (fewer entries than the other device has) and helpfully
+  // "restore" it right back — which is the opposite of what deleting something means. Every
+  // device's deletion list gets unioned together during sync, same as history entries, so a
+  // deletion made anywhere is respected everywhere.
+  function loadDeletedIds(){
+    try{ var raw = localStorage.getItem(STORAGE_DELETED_IDS); return raw ? JSON.parse(raw) : []; }catch(e){ return []; }
+  }
+  function saveDeletedIdsRaw(ids){ try{ localStorage.setItem(STORAGE_DELETED_IDS, JSON.stringify(ids)); }catch(e){} }
+  function recordDeletedId(key){
+    var ids = loadDeletedIds();
+    if(ids.indexOf(key) === -1){ ids.push(key); saveDeletedIdsRaw(ids); }
+  }
+  function unionStrings(a, b){
+    var seen = {}; var out = [];
+    a.concat(b).forEach(function(s){ if(!seen[s]){ seen[s] = true; out.push(s); } });
+    return out;
+  }
+  function keySetOf(historyArr){ return historyArr.map(historyRecordKey).sort().join(","); }
+
   var config = loadConfig();
 
   // ---------- Cloud sync (Firebase) ----------
@@ -692,25 +714,27 @@
     }
     // Backward compatible with documents written before this change (structured fields
     // instead of a blob) — reads them fine; the next push converts them to the new shape.
-    if(data.config){ return { config: data.config, history: data.history || [] }; }
+    if(data.config){ return { config: data.config, history: data.history || [], deletedIds: data.deletedIds || [] }; }
     return null;
   }
 
-  function cloudPush(cfgArg, histArg){
+  function cloudPush(cfgArg, histArg, delArg){
     if(!cloudDb || !cloudAuthed){ console.warn("[AMRAP sync] push skipped — not connected yet"); return; }
     try{
       var ts = Date.now();
       var payloadHistory = histArg !== undefined ? histArg : loadHistory();
+      var payloadDeleted = delArg !== undefined ? delArg : loadDeletedIds();
       var blob = JSON.stringify({
         config: cfgArg !== undefined ? cfgArg : config,
-        history: payloadHistory
+        history: payloadHistory,
+        deletedIds: payloadDeleted
       });
       cloudDb.collection("users").doc(getSyncCode()).set({
         blob: blob,
         updatedAt: ts
       }).then(function(){
         setLastSyncedAt(ts);
-        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + payloadHistory.length + " history entries, ts " + ts);
+        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + payloadHistory.length + " history entries, " + payloadDeleted.length + " tombstones, ts " + ts);
       }).catch(function(err){
         console.error("[AMRAP sync] push FAILED — code " + getSyncCode() + ":", err);
       });
@@ -739,25 +763,39 @@
       try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
       if(hasActiveSession){ console.log("[AMRAP sync] skipping — a workout is in progress on this device."); return; }
 
-      // History merges rather than "whoever synced last wins" — that's what lets you log a
-      // workout on your phone AND your laptop without refreshing in between and have BOTH
-      // show up everywhere afterward, instead of one silently overwriting the other's entry.
+      // History merges rather than "whoever synced last wins" — logging a workout on your
+      // phone AND your laptop without refreshing in between means BOTH survive afterward.
+      // Deletions are tracked as tombstones and unioned the same way, then always applied
+      // AFTER merging — otherwise a deletion made on one device would just get "restored"
+      // by the other device's still-intact copy the next time they sync, which is exactly
+      // backwards for something you deliberately deleted.
       var localHistory = loadHistory();
       var cloudHistory = data.history || [];
-      var merged = mergeHistories(localHistory, cloudHistory);
-      var localGainedEntries = merged.length > localHistory.length;
-      var cloudGainedEntries = merged.length > cloudHistory.length;
+      var localDeleted = loadDeletedIds();
+      var cloudDeleted = data.deletedIds || [];
+
+      var mergedDeleted = unionStrings(localDeleted, cloudDeleted);
+      var mergedHistory = mergeHistories(localHistory, cloudHistory).filter(function(r){
+        return mergedDeleted.indexOf(historyRecordKey(r)) === -1;
+      });
+
+      var localHistoryChanged = keySetOf(mergedHistory) !== keySetOf(localHistory);
+      var cloudHistoryStale = keySetOf(mergedHistory) !== keySetOf(cloudHistory);
+      var localDeletedChanged = mergedDeleted.length !== localDeleted.length;
+      var cloudDeletedStale = mergedDeleted.length !== cloudDeleted.length;
 
       var cloudTs = raw.updatedAt || 0;
       var lastSyncedAt = getLastSyncedAt();
       var configIsNewer = cloudTs > lastSyncedAt;
 
       console.log("[AMRAP sync] cloud check — local history: " + localHistory.length + ", cloud history: " + cloudHistory.length +
-        ", merged: " + merged.length + ", cloudTs: " + cloudTs + ", lastSyncedAt: " + lastSyncedAt);
+        ", merged (post-tombstone): " + mergedHistory.length + ", tombstones: " + mergedDeleted.length +
+        ", cloudTs: " + cloudTs + ", lastSyncedAt: " + lastSyncedAt);
 
       var localChanged = false;
-      if(localGainedEntries){
-        try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(merged)); }catch(e){}
+      if(localHistoryChanged || localDeletedChanged){
+        try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(mergedHistory)); }catch(e){}
+        saveDeletedIdsRaw(mergedDeleted);
         localChanged = true;
       }
       if(configIsNewer){
@@ -766,10 +804,10 @@
       }
       setLastSyncedAt(Math.max(cloudTs, lastSyncedAt));
 
-      if(cloudGainedEntries){
-        // Local had history entries the cloud didn't know about — push the reconciled,
-        // combined list up so the cloud (and other devices) catch up too.
-        cloudPush(undefined, merged);
+      if(cloudHistoryStale || cloudDeletedStale){
+        // Cloud doesn't yet reflect the full reconciled picture (missing entries, or missing
+        // a deletion) — push the merged result up so the cloud (and other devices) catch up.
+        cloudPush(undefined, mergedHistory, mergedDeleted);
       }
 
       if(localChanged){
@@ -801,6 +839,7 @@
       if(data && data.config){
         try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
         try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
+        saveDeletedIdsRaw(data.deletedIds || []);
         setLastSyncedAt((raw && raw.updatedAt) || Date.now());
         location.reload();
       } else {
@@ -809,7 +848,7 @@
         // can't get cut off mid-flight by the page navigating away.
         var ts = Date.now();
         cloudDb.collection("users").doc(code).set({
-          blob: JSON.stringify({ config: config, history: loadHistory() }),
+          blob: JSON.stringify({ config: config, history: loadHistory(), deletedIds: loadDeletedIds() }),
           updatedAt: ts
         }).then(function(){
           setLastSyncedAt(ts);
@@ -2122,7 +2161,8 @@
           delBtn.addEventListener("click", function(){
             if(!confirm("Delete this workout from history? This can't be undone.")) return;
             var fresh = loadHistory();
-            fresh.splice(idx, 1);
+            var removed = fresh.splice(idx, 1)[0];
+            if(removed) recordDeletedId(historyRecordKey(removed));
             saveHistory(fresh);
             renderHistory();
           });
@@ -2134,6 +2174,7 @@
     });
     document.getElementById("clearHistoryBtn").onclick = function(){
       if(confirm("Delete all saved workout history?")){
+        loadHistory().forEach(function(r){ recordDeletedId(historyRecordKey(r)); });
         saveHistory([]);
         renderHistory();
       }
