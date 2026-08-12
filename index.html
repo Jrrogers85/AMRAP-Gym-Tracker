@@ -601,6 +601,28 @@
   // — including ones with UI work left to do afterward, like starting a workout.
   function saveConfig(cfg){ try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(cfg)); }catch(e){} cloudPush(cfg, undefined); }
 
+  function makeHistoryId(){
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  }
+  // Used to line up "the same workout" between two devices when merging history. Records
+  // saved before this existed won't have an id, so fall back to a composite of fields that
+  // together are effectively unique for a given workout.
+  function historyRecordKey(r){
+    return r.id || [r.date, r.day, r.elapsedSec, r.roundsCompleted].join("|");
+  }
+  // Combines two history arrays into one with no duplicates and nothing dropped from either
+  // side — this is what lets you log a workout on your phone AND your laptop independently
+  // (without refreshing in between) and have both end up with both entries, instead of
+  // whichever device happened to sync last silently overwriting the other's addition.
+  function mergeHistories(a, b){
+    var map = {};
+    a.concat(b).forEach(function(r){ map[historyRecordKey(r)] = r; });
+    var merged = [];
+    for(var k in map){ if(Object.prototype.hasOwnProperty.call(map, k)) merged.push(map[k]); }
+    merged.sort(function(x, y){ return new Date(y.date) - new Date(x.date); });
+    return merged;
+  }
+
   function loadHistory(){
     try{
       var raw = localStorage.getItem(STORAGE_HISTORY);
@@ -690,43 +712,53 @@
   function cloudPullOnce(){
     if(!cloudDb || !cloudAuthed) return;
     cloudDb.collection("users").doc(getSyncCode()).get().then(function(doc){
-      if(doc.exists){
-        var data = doc.data();
-        if(!data || !data.config) return;
-        var cloudTs = data.updatedAt || 0;
-        var lastSyncedAt = getLastSyncedAt();
-        var hasActiveSession = false;
-        try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
-        // Only pull the cloud copy down if it's genuinely newer than the last version
-        // this device already knows about, and only reload once per page load (guarded
-        // via sessionStorage) so a slow network or repeat calls can never loop.
+      if(!doc.exists){ cloudPush(); return; }
+      var data = doc.data();
+      if(!data || !data.config) return;
+
+      var hasActiveSession = false;
+      try{ hasActiveSession = !!localStorage.getItem(STORAGE_SESSION); }catch(e){}
+      if(hasActiveSession) return; // never touch local data mid-workout
+
+      // History merges rather than "whoever synced last wins" — that's what lets you log a
+      // workout on your phone AND your laptop without refreshing in between and have BOTH
+      // show up everywhere afterward, instead of one silently overwriting the other's entry.
+      var localHistory = loadHistory();
+      var cloudHistory = data.history || [];
+      var merged = mergeHistories(localHistory, cloudHistory);
+      var localGainedEntries = merged.length > localHistory.length;
+      var cloudGainedEntries = merged.length > cloudHistory.length;
+
+      var cloudTs = data.updatedAt || 0;
+      var lastSyncedAt = getLastSyncedAt();
+      var configIsNewer = cloudTs > lastSyncedAt;
+
+      var localChanged = false;
+      if(localGainedEntries){
+        try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(merged)); }catch(e){}
+        localChanged = true;
+      }
+      if(configIsNewer){
+        try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
+        localChanged = true;
+      }
+      setLastSyncedAt(Math.max(cloudTs, lastSyncedAt));
+
+      if(cloudGainedEntries){
+        // Local had history entries the cloud didn't know about — push the reconciled,
+        // combined list up so the cloud (and other devices) catch up too.
+        cloudPush(undefined, merged);
+      }
+
+      if(localChanged){
+        // Only reload once per page load (guarded via sessionStorage) so a slow network
+        // or repeat calls can never turn into a reload loop.
         var alreadyReloadedThisLoad = false;
         try{ alreadyReloadedThisLoad = sessionStorage.getItem("amrap_sync_reloaded") === "1"; }catch(e){}
-        // Safety net: if the cloud copy has FEWER history entries than we already have
-        // locally, something went wrong upstream (e.g. a save that silently failed to
-        // fully reach the cloud) — don't let it wipe out local data. Treat local as the
-        // more trustworthy copy and push it back up instead of pulling the smaller one down.
-        var localHistoryLen = loadHistory().length;
-        var cloudHistoryLen = (data.history || []).length;
-        var cloudLooksIncomplete = cloudHistoryLen < localHistoryLen;
-        if(cloudTs > lastSyncedAt && !hasActiveSession && !alreadyReloadedThisLoad && !cloudLooksIncomplete){
-          try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
-          try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
-          setLastSyncedAt(cloudTs);
+        if(!alreadyReloadedThisLoad){
           try{ sessionStorage.setItem("amrap_sync_reloaded", "1"); }catch(e){}
           location.reload();
-        } else if(cloudTs > lastSyncedAt && cloudLooksIncomplete){
-          // Cloud is "newer" but has less history than we do — re-push our local copy
-          // (which has more data) so the cloud gets corrected instead of us losing data.
-          cloudPush();
-        } else if(cloudTs > lastSyncedAt){
-          // Newer cloud data exists but we skipped pulling it (active session, or
-          // already reloaded once this load) — still record it so we don't keep
-          // treating it as "new" every time this check runs.
-          setLastSyncedAt(cloudTs);
         }
-      } else {
-        cloudPush();
       }
     }).catch(function(){});
   }
@@ -1655,6 +1687,7 @@
     var roundsForCalorie = session.dayType === "timed" ? 0 : session.rounds.length;
     var calories = estimateWorkoutCalories(session.day, elapsedSec, intensity, roundsForCalorie);
     var record = {
+      id: makeHistoryId(),
       date: new Date(session.startedAt).toISOString(),
       day: session.day,
       dayLabel: session.dayLabel,
@@ -2246,6 +2279,7 @@
     var dateObj = new Date(dateStr + "T12:00:00");
 
     var record = {
+      id: makeHistoryId(),
       date: dateObj.toISOString(),
       day: day,
       dayLabel: meta.label,
