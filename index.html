@@ -718,10 +718,22 @@
         try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
         try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
         setLastSyncedAt(data.updatedAt || Date.now());
+        location.reload();
       } else {
-        cloudPush();
+        // Nothing saved under this code yet — push this device's current data as the
+        // starting point, but WAIT for that write to finish before reloading, so it
+        // can't get cut off mid-flight by the page navigating away.
+        var ts = Date.now();
+        cloudDb.collection("users").doc(code).set({
+          config: config,
+          history: loadHistory(),
+          updatedAt: ts
+        }).then(function(){
+          setLastSyncedAt(ts);
+        }).catch(function(){}).then(function(){
+          location.reload();
+        });
       }
-      location.reload();
     }).catch(function(){ location.reload(); });
   }
 
