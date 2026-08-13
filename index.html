@@ -1885,12 +1885,17 @@
   // NOTE: this used to loop the silent track forever and request the "playback" audio
   // session category, which fixed the silent-switch issue but had a side effect — iOS
   // treated the tab as continuously "now playing" and paused podcasts/music in other apps.
-  // Fix: play the silent clip once (not looped) just to "prime" the session, then let it
-  // end, and don't force the exclusive "playback" category. This keeps beeps audible in
-  // silent mode without stopping whatever else is already playing.
+  // Playing it just once fixed that, but introduced a NEW problem: the "prime" fades over
+  // time (especially after the screen locks/dims, which suspends the audio session), so
+  // beeps would work once or twice and then go silent again. Fix: keep the one-time play on
+  // first tap (so beeps work immediately), but also briefly re-play the silent clip right
+  // before every timer beep (see replaySilentUnlock(), called from playTimerSound()). Each
+  // re-prime is ~1 second of true silence, so it shouldn't audibly interrupt music/podcasts
+  // the way constant looping did — it just briefly re-establishes the session at the moments
+  // a beep is actually needed.
   var silentUnlockAudio = null;
   function unlockIOSAudioSession(){
-    if(silentUnlockAudio) return;
+    if(silentUnlockAudio){ replaySilentUnlock(); return; }
     try{
       silentUnlockAudio = document.createElement("audio");
       silentUnlockAudio.loop = false;
@@ -1905,8 +1910,26 @@
       console.warn("[AMRAP sound] couldn't build/play silent unlock track:", err);
     }
   }
+  function replaySilentUnlock(){
+    if(!silentUnlockAudio) return;
+    try{
+      silentUnlockAudio.currentTime = 0;
+      var p = silentUnlockAudio.play();
+      if(p && p.catch) p.catch(function(err){ console.warn("[AMRAP sound] silent re-prime failed:", err); });
+    }catch(err){
+      console.warn("[AMRAP sound] silent re-prime threw:", err);
+    }
+  }
   document.addEventListener("touchstart", unlockIOSAudioSession, { once: true, passive: true });
   document.addEventListener("click", unlockIOSAudioSession, { once: true });
+  // Defense-in-depth: iOS also tends to suspend the AudioContext whenever the tab is
+  // backgrounded (screen lock, app switch) — resume it the moment it's visible again so a
+  // beep that fires right as you return isn't silently dropped.
+  document.addEventListener("visibilitychange", function(){
+    if(!document.hidden && typeof sharedAudioCtx !== "undefined" && sharedAudioCtx && sharedAudioCtx.state === "suspended"){
+      sharedAudioCtx.resume().catch(function(){});
+    }
+  });
 
   // ---------- Quick Timer (manual, up to 1 minute, selectable alert sound) ----------
   var sharedAudioCtx = null;
@@ -1951,6 +1974,7 @@
   };
 
   function playTimerSound(){
+    replaySilentUnlock(); // re-prime the silent-mode audio session right before each beep
     var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
     TIMER_SOUNDS[key].play();
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
