@@ -268,6 +268,10 @@
         <option value="25">25 min</option>
         <option value="30">30 min</option>
       </select>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; color:var(--muted); cursor:pointer;">
+        <input type="checkbox" id="soundThroughSilentToggle" style="width:auto; margin:0;">
+        Play beeps even if phone is on silent (may briefly pause music/podcasts each beep)
+      </label>
     </div>
 
     <select class="day-banner" id="dayBanner"></select>
@@ -531,6 +535,7 @@
       defaultCapMin: 20,
       timerSound: "beep",
       timerDuration: 60,
+      soundThroughSilent: false,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null },
       days: {
         1: { locked:false, supersets: [
@@ -592,6 +597,7 @@
       if(!cfg.defaultCapMin) cfg.defaultCapMin = 20;
       if(!cfg.timerSound) cfg.timerSound = "beep";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
+      if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = false;
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null };
       return cfg;
     }catch(e){ return fresh; }
@@ -1920,8 +1926,12 @@
       console.warn("[AMRAP sound] silent re-prime threw:", err);
     }
   }
-  document.addEventListener("touchstart", unlockIOSAudioSession, { once: true, passive: true });
-  document.addEventListener("click", unlockIOSAudioSession, { once: true });
+  // Only bother priming the silent-audio-element trick at all if the user has opted in via
+  // the "play beeps even if muted" toggle — it's the thing that steals iOS audio focus from
+  // podcasts/music, so with the toggle off we skip it entirely and just use plain Web Audio
+  // beeps (audible when unmuted, silent when muted, never touches other apps' audio).
+  document.addEventListener("touchstart", function(){ if(config.soundThroughSilent) unlockIOSAudioSession(); }, { passive: true });
+  document.addEventListener("click", function(){ if(config.soundThroughSilent) unlockIOSAudioSession(); });
   // Defense-in-depth: iOS also tends to suspend the AudioContext whenever the tab is
   // backgrounded (screen lock, app switch) — resume it the moment it's visible again so a
   // beep that fires right as you return isn't silently dropped.
@@ -1974,7 +1984,9 @@
   };
 
   function playTimerSound(){
-    replaySilentUnlock(); // re-prime the silent-mode audio session right before each beep
+    // Only re-prime the silent-audio-element trick if the user opted in — that's the part
+    // that can briefly interrupt podcasts/music, so respect their choice from the toggle.
+    if(config.soundThroughSilent) replaySilentUnlock();
     var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
     TIMER_SOUNDS[key].play();
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
@@ -2068,6 +2080,16 @@
 
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
     playTimerSound();
+  });
+
+  // "Play beeps even if phone is on silent" toggle — off by default. iOS won't let a beep
+  // both bypass the mute switch AND avoid briefly interrupting podcasts/music, so this is a
+  // deliberate trade-off the user gets to choose rather than something baked in for everyone.
+  var soundThroughSilentToggle = document.getElementById("soundThroughSilentToggle");
+  soundThroughSilentToggle.checked = !!config.soundThroughSilent;
+  soundThroughSilentToggle.addEventListener("change", function(e){
+    config.soundThroughSilent = e.target.checked;
+    saveConfig(config);
   });
 
   function quickTimerTick(){
