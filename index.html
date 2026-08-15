@@ -222,6 +222,7 @@
     <div id="activeBlock" style="display:none;">
       <div style="text-align:center; margin-bottom:10px;">
         <span class="round-badge" id="roundsCompletedBadge">✅ Rounds Completed: 0</span>
+        <div class="day-nav-label" id="roundSplitsLine" style="margin-top:4px;"></div>
       </div>
       <div class="card" id="roundCard">
         <div class="col-head"><div>Exercise</div><div>Weight</div><div>Reps</div></div>
@@ -1384,6 +1385,7 @@
       totalPausedMs: 0,
       capAlertPlayed: false,
       rounds: [],           // completed rounds
+      roundSplitsMs: [],    // how long each completed round took (pause-aware), supersets days only
       current: newRoundEntries(null, dayDataSnapshot, meta.type)
     };
     if(meta.type === "interval"){
@@ -1529,6 +1531,7 @@
   function renderRound(){
     document.getElementById("roundNum").textContent = session.rounds.length + 1;
     document.getElementById("roundsCompletedBadge").textContent = "✅ Rounds Completed: " + session.rounds.length;
+    renderRoundSplitsLine();
     var wrap = document.getElementById("roundExerciseList");
     wrap.innerHTML = "";
     var groupBySS = session.dayType === "supersets";
@@ -1560,6 +1563,19 @@
         persistSession();
       });
     });
+  }
+
+  // Shows a running list of how long each completed round took this session (e.g.
+  // "Splits: 1:45 · 2:10 · 1:58"), so you can see mid-workout whether you're speeding up,
+  // holding steady, or dragging. Supersets days only — rounds don't apply to timed/interval.
+  function formatSplitMs(ms){
+    return formatQuickTime(Math.round(ms/1000));
+  }
+  function renderRoundSplitsLine(){
+    var el = document.getElementById("roundSplitsLine");
+    if(!el) return;
+    var splits = (session && session.roundSplitsMs) || [];
+    el.textContent = splits.length ? ("Splits: " + splits.map(formatSplitMs).join(" · ")) : "";
   }
 
   // Auto-advances the Day 6 interval timer: counts down the current phase (rest/work) and,
@@ -1683,6 +1699,11 @@
     // Log the round, immediately show the next round's exercises (editable right away —
     // no separate rest screen blocking them), and kick the Quick Timer off as the single
     // rest countdown instead of running a second, mismatched timer.
+    // Split time = elapsed-so-far minus whatever's already been credited to earlier rounds
+    // (pause-aware, since getElapsedMs() already subtracts paused time).
+    if(!session.roundSplitsMs) session.roundSplitsMs = [];
+    var priorMs = session.roundSplitsMs.reduce(function(sum, ms){ return sum + ms; }, 0);
+    session.roundSplitsMs.push(Math.max(0, getElapsedMs() - priorMs));
     session.rounds.push(session.current);
     session.current = newRoundEntries(session.rounds[session.rounds.length-1], session.dayData, session.dayType);
     persistSession();
@@ -1776,6 +1797,7 @@
       workSec: session.interval ? session.interval.workSec : null,
       restSec: session.interval ? session.interval.restSec : null,
       rounds: session.rounds,
+      roundSplitsMs: session.roundSplitsMs || [],
       intensity: intensity,
       calories: calories
     };
@@ -1803,6 +1825,7 @@
     document.getElementById("clockDisplay").textContent = "00:00";
     document.getElementById("capWarning").textContent = "";
     document.getElementById("completeRoundBtn").disabled = false;
+    document.getElementById("roundSplitsLine").textContent = "";
     renderPauseUI();
     updateWorkoutIdleUI();
   }
@@ -2268,6 +2291,7 @@
             detail.appendChild(buildCardioDetail(rec));
           } else {
             detail.appendChild(buildHistoryTotals(rec));
+            if(rec.roundSplitsMs && rec.roundSplitsMs.length) detail.appendChild(buildRoundSplitsDetail(rec));
             detail.appendChild(buildHistoryTable(rec));
           }
           var delBtn = document.createElement("button");
@@ -2355,6 +2379,43 @@
     wrap.appendChild(title);
     wrap.appendChild(table);
     wrap.appendChild(summary);
+    return wrap;
+  }
+
+  // Per-round pacing — shows how long each round took, so you can see whether you sped up,
+  // held steady, or dragged over the course of the workout. Older history entries saved
+  // before this feature won't have roundSplitsMs, so this section is skipped for those.
+  function buildRoundSplitsDetail(rec){
+    var wrap = document.createElement("div");
+    var title = document.createElement("p");
+    title.className = "superset-title";
+    title.style.margin = "14px 0 6px";
+    title.textContent = "Round Times";
+    wrap.appendChild(title);
+
+    var table = document.createElement("table");
+    var head = "<tr>";
+    rec.roundSplitsMs.forEach(function(_, ri){ head += "<th>R"+(ri+1)+"</th>"; });
+    head += "</tr>";
+    var body = "<tr>";
+    rec.roundSplitsMs.forEach(function(ms){
+      var sec = Math.round(ms/1000);
+      body += "<td>" + Math.floor(sec/60) + ":" + String(sec%60).padStart(2,"0") + "</td>";
+    });
+    body += "</tr>";
+    table.innerHTML = head + body;
+    wrap.appendChild(table);
+
+    var fastest = Math.min.apply(null, rec.roundSplitsMs);
+    var slowest = Math.max.apply(null, rec.roundSplitsMs);
+    var avg = rec.roundSplitsMs.reduce(function(s,ms){return s+ms;}, 0) / rec.roundSplitsMs.length;
+    var summary = document.createElement("p");
+    summary.className = "day-nav-label";
+    summary.style.margin = "8px 0";
+    function fmt(ms){ var s = Math.round(ms/1000); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+    summary.textContent = "Fastest: " + fmt(fastest) + " · Slowest: " + fmt(slowest) + " · Avg: " + fmt(avg);
+    wrap.appendChild(summary);
+
     return wrap;
   }
 
