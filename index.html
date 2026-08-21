@@ -2118,11 +2118,13 @@
   function quickTimerTick(){
     var msLeft = quickTimer.endsAt - Date.now();
     if(msLeft <= 0){
-      quickTimer.remaining = 0;
       quickTimer.running = false;
       clearInterval(quickTimer.intervalId);
-      renderQuickTimer();
       playTimerSound();
+      // Snap the display back to the configured duration (e.g. 1:00) instead of leaving it
+      // sitting at 0:00 — ready for the next round without needing a separate Reset tap.
+      quickTimer.remaining = quickTimer.duration;
+      renderQuickTimer();
       return;
     }
     quickTimer.remaining = Math.ceil(msLeft/1000);
