@@ -142,6 +142,7 @@
     <button data-tab="workout" class="active">Workout</button>
     <button data-tab="setup">Setup</button>
     <button data-tab="history">History</button>
+    <button data-tab="nutrition">Nutrition</button>
     <button data-tab="profile">Profile</button>
   </nav>
 </header>
@@ -355,6 +356,67 @@
     </div>
   </section>
 
+  <!-- NUTRITION SCREEN -->
+  <section id="tab-nutrition" class="screen">
+    <div class="card">
+      <h2>Today's Nutrition</h2>
+      <div class="flex-between" style="font-size:14px;">
+        <span>Protein</span>
+        <span id="nutProteinLabel" class="muted">0g / 0g</span>
+      </div>
+      <div style="height:8px; background:var(--card2); border-radius:6px; overflow:hidden; margin:6px 0 12px;">
+        <div id="nutProteinBar" style="height:100%; width:0%; background:var(--accent); transition:width 0.3s;"></div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center;">
+        <div><div class="clock" style="font-size:18px;" id="nutCaloriesValue">0</div><div class="day-nav-label" style="margin-top:0;">kcal</div></div>
+        <div><div class="clock" style="font-size:18px;" id="nutCarbsValue">0g</div><div class="day-nav-label" style="margin-top:0;">carbs</div></div>
+        <div><div class="clock" style="font-size:18px;" id="nutFatValue">0g</div><div class="day-nav-label" style="margin-top:0;">fat</div></div>
+      </div>
+      <p class="muted" style="font-size:12px; margin:10px 0 0;" id="nutProteinGoalNote"></p>
+    </div>
+
+    <div class="card" id="quickAddFoodsCard">
+      <h2>Quick Add</h2>
+      <div id="quickAddFoodsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;"></div>
+      <p class="muted" id="quickAddEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">No foods saved yet — add your first one below.</p>
+    </div>
+
+    <div class="card" id="addFoodCard">
+      <div class="flex-between" id="addFoodToggle" style="cursor:pointer;">
+        <h2 style="margin:0;">Add Food</h2>
+        <span class="muted" id="addFoodChevron" style="font-size:13px;">▸ Show</span>
+      </div>
+      <div id="addFoodFields" style="display:none;">
+        <p class="muted" style="font-size:12px; margin:10px 0 0;">Search by name (e.g. "Little Debbie Oatmeal Creme Pie") to pull in nutrition facts, or skip straight to entering it yourself below.</p>
+        <div class="row2" style="margin-top:8px;">
+          <input type="text" id="foodSearchInput" placeholder="Search a food...">
+          <button class="secondary" id="foodSearchBtn" style="margin-top:0;">🔎 Search</button>
+        </div>
+        <p class="muted" id="foodSearchStatus" style="font-size:12px; margin:6px 0 0;"></p>
+        <div id="foodSearchResults"></div>
+
+        <div class="exercise-row" style="margin-top:12px;"><div style="flex:1; font-size:15px;">Name</div><input type="text" id="foodNameInput" placeholder="Food name" style="width:190px;"></div>
+        <div class="exercise-row"><div style="flex:1; font-size:15px;">Calories</div><input type="number" inputmode="numeric" id="foodCaloriesInput" min="0" style="width:90px;"></div>
+        <div class="exercise-row"><div style="flex:1; font-size:15px;">Protein (g)</div><input type="number" inputmode="decimal" id="foodProteinInput" min="0" style="width:90px;"></div>
+        <div class="exercise-row"><div style="flex:1; font-size:15px;">Carbs (g)</div><input type="number" inputmode="decimal" id="foodCarbsInput" min="0" style="width:90px;"></div>
+        <div class="exercise-row"><div style="flex:1; font-size:15px;">Fat (g)</div><input type="number" inputmode="decimal" id="foodFatInput" min="0" style="width:90px;"></div>
+        <button class="primary" id="saveFoodBtn" style="margin-top:10px;">➕ Save to My Foods</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>My Foods</h2>
+      <div id="myFoodsList"></div>
+      <p class="muted" id="myFoodsEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing saved yet.</p>
+    </div>
+
+    <div class="card">
+      <h2>Logged Today</h2>
+      <div id="loggedTodayList"></div>
+      <p class="muted" id="loggedTodayEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing logged yet today.</p>
+    </div>
+  </section>
+
   <!-- PROFILE SCREEN -->
   <section id="tab-profile" class="screen">
     <div class="card">
@@ -423,6 +485,11 @@
   var STORAGE_SYNC_META = "amrap_sync_meta_v1";
   var STORAGE_SYNC_CODE = "amrap_sync_code_v1";
   var STORAGE_DELETED_IDS = "amrap_deleted_ids_v1";
+  // Nutrition log is local-only for now (not part of cloud sync yet) — the food LIST
+  // (config.foods) rides along with the rest of config and does sync, since that's a small,
+  // rarely-changing list, but the day-to-day log is high-frequency and would need its own
+  // merge/tombstone logic like History has. Flagged as a clear follow-up, not done here.
+  var STORAGE_NUTRITION_LOG = "amrap_nutrition_log_v1";
 
   // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
   var PUSH_EXERCISES = [
@@ -537,6 +604,8 @@
       timerSound: "beep",
       timerDuration: 60,
       soundThroughSilent: false,
+      proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
+      foods: [],          // personal quick-add food list: {id, name, protein, carbs, fat, calories, servingLabel}
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null },
       days: {
         1: { locked:false, supersets: [
@@ -600,6 +669,8 @@
       if(!cfg.timerDuration) cfg.timerDuration = 60;
       if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = false;
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null };
+      if(!Array.isArray(cfg.foods)) cfg.foods = [];
+      if(typeof cfg.proteinGoalG === "undefined") cfg.proteinGoalG = null;
       return cfg;
     }catch(e){ return fresh; }
   }
@@ -901,6 +972,7 @@
       if(btn.dataset.tab === "setup") renderSetup();
       if(btn.dataset.tab === "workout") updateWorkoutIdleUI();
       if(btn.dataset.tab === "profile") renderProfile();
+      if(btn.dataset.tab === "nutrition") renderNutrition();
     });
   });
 
@@ -2559,6 +2631,260 @@
     alert("Added to History.");
   });
 
+  // ---------- Nutrition (local-only for now — not yet part of cloud sync; config.foods
+  // rides along with the rest of config and DOES sync, since it's a small list, but the
+  // day-to-day log is high-frequency and would need its own merge logic like History has) ----------
+  function loadNutritionLog(){
+    try{
+      var raw = localStorage.getItem(STORAGE_NUTRITION_LOG);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
+  }
+  function saveNutritionLog(log){
+    try{ localStorage.setItem(STORAGE_NUTRITION_LOG, JSON.stringify(log)); }catch(e){}
+  }
+  function todaysNutritionEntries(){
+    var todayStr = new Date().toDateString();
+    return loadNutritionLog().filter(function(e){ return new Date(e.loggedAt).toDateString() === todayStr; });
+  }
+  // Rough default of 0.8g protein per lb bodyweight — a commonly cited target for people
+  // doing regular resistance training. Overridable by editing config.proteinGoalG directly
+  // (no UI for that yet — could add an input later if you want to fine-tune it).
+  function computeProteinGoalG(){
+    if(config.proteinGoalG) return config.proteinGoalG;
+    var lb = config.profile && config.profile.weightLb;
+    return lb ? Math.round(lb * 0.8) : null;
+  }
+
+  function renderNutrition(){
+    renderNutritionTotals();
+    renderQuickAddGrid();
+    renderMyFoodsList();
+    renderLoggedTodayList();
+  }
+
+  function renderNutritionTotals(){
+    var entries = todaysNutritionEntries();
+    var totals = entries.reduce(function(t, e){
+      t.calories += e.calories || 0;
+      t.protein += e.protein || 0;
+      t.carbs += e.carbs || 0;
+      t.fat += e.fat || 0;
+      return t;
+    }, { calories:0, protein:0, carbs:0, fat:0 });
+
+    var goal = computeProteinGoalG();
+    var label = document.getElementById("nutProteinLabel");
+    var bar = document.getElementById("nutProteinBar");
+    var note = document.getElementById("nutProteinGoalNote");
+    if(goal){
+      label.textContent = Math.round(totals.protein) + "g / " + goal + "g";
+      bar.style.width = Math.max(0, Math.min(100, (totals.protein/goal)*100)) + "%";
+      note.textContent = "Goal is a rough estimate (0.8g per lb bodyweight) — edit your weight in Profile to update it.";
+    } else {
+      label.textContent = Math.round(totals.protein) + "g logged";
+      bar.style.width = "0%";
+      note.textContent = "Add your weight in the Profile tab to see a protein goal.";
+    }
+    document.getElementById("nutCaloriesValue").textContent = Math.round(totals.calories).toLocaleString();
+    document.getElementById("nutCarbsValue").textContent = Math.round(totals.carbs) + "g";
+    document.getElementById("nutFatValue").textContent = Math.round(totals.fat) + "g";
+  }
+
+  function logFoodEntry(food){
+    var log = loadNutritionLog();
+    log.unshift({
+      id: makeHistoryId(),
+      foodId: food.id || null,
+      name: food.name,
+      calories: food.calories || 0,
+      protein: food.protein || 0,
+      carbs: food.carbs || 0,
+      fat: food.fat || 0,
+      loggedAt: new Date().toISOString()
+    });
+    saveNutritionLog(log);
+    renderNutritionTotals();
+    renderLoggedTodayList();
+  }
+
+  function renderQuickAddGrid(){
+    var grid = document.getElementById("quickAddFoodsGrid");
+    var emptyMsg = document.getElementById("quickAddEmptyMsg");
+    grid.innerHTML = "";
+    var foods = config.foods || [];
+    emptyMsg.style.display = foods.length ? "none" : "block";
+    foods.forEach(function(food){
+      var btn = document.createElement("button");
+      btn.className = "secondary";
+      btn.style.marginTop = "0";
+      btn.style.textAlign = "left";
+      btn.innerHTML =
+        '<div style="font-size:13px; font-weight:600;">+ ' + escapeHtml(food.name) + '</div>' +
+        '<div class="muted" style="font-size:11px; margin-top:2px;">' + Math.round(food.protein||0) + 'g protein &middot; ' + Math.round(food.calories||0) + ' kcal</div>';
+      btn.addEventListener("click", function(){ logFoodEntry(food); });
+      grid.appendChild(btn);
+    });
+  }
+
+  function renderMyFoodsList(){
+    var wrap = document.getElementById("myFoodsList");
+    var emptyMsg = document.getElementById("myFoodsEmptyMsg");
+    wrap.innerHTML = "";
+    var foods = config.foods || [];
+    emptyMsg.style.display = foods.length ? "none" : "block";
+    foods.forEach(function(food){
+      var row = document.createElement("div");
+      row.className = "exercise-row";
+      row.innerHTML =
+        '<div style="flex:1; min-width:0; font-size:14px;">' + escapeHtml(food.name) +
+        '<div class="muted" style="font-size:11px;">' + Math.round(food.calories||0) + ' kcal &middot; ' +
+          Math.round(food.protein||0) + 'g P &middot; ' + Math.round(food.carbs||0) + 'g C &middot; ' + Math.round(food.fat||0) + 'g F</div></div>';
+      var delBtn = document.createElement("button");
+      delBtn.className = "small danger";
+      delBtn.style.marginTop = "0";
+      delBtn.textContent = "🗑";
+      delBtn.addEventListener("click", function(){
+        if(!confirm('Remove "' + food.name + '" from your food list? (Past logged entries are unaffected.)')) return;
+        config.foods = (config.foods || []).filter(function(f){ return f.id !== food.id; });
+        saveConfig(config);
+        renderQuickAddGrid();
+        renderMyFoodsList();
+      });
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
+  function renderLoggedTodayList(){
+    var wrap = document.getElementById("loggedTodayList");
+    var emptyMsg = document.getElementById("loggedTodayEmptyMsg");
+    wrap.innerHTML = "";
+    var entries = todaysNutritionEntries();
+    emptyMsg.style.display = entries.length ? "none" : "block";
+    entries.forEach(function(entry){
+      var row = document.createElement("div");
+      row.className = "exercise-row";
+      var time = new Date(entry.loggedAt).toLocaleTimeString(undefined, {hour:"numeric", minute:"2-digit"});
+      row.innerHTML =
+        '<div style="flex:1; min-width:0; font-size:14px;">' + time + ' &middot; ' + escapeHtml(entry.name) +
+        '<div class="muted" style="font-size:11px;">' + Math.round(entry.calories||0) + ' kcal &middot; ' + Math.round(entry.protein||0) + 'g protein</div></div>';
+      var delBtn = document.createElement("button");
+      delBtn.className = "small danger";
+      delBtn.style.marginTop = "0";
+      delBtn.textContent = "🗑";
+      delBtn.addEventListener("click", function(){
+        var log = loadNutritionLog().filter(function(e){ return e.id !== entry.id; });
+        saveNutritionLog(log);
+        renderNutritionTotals();
+        renderLoggedTodayList();
+      });
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+
+  document.getElementById("addFoodToggle").addEventListener("click", function(){
+    var fields = document.getElementById("addFoodFields");
+    var chevron = document.getElementById("addFoodChevron");
+    var open = fields.style.display !== "none";
+    fields.style.display = open ? "none" : "block";
+    chevron.textContent = open ? "▸ Show" : "▾ Hide";
+  });
+
+  // Free, open, crowd-sourced food database — good coverage of branded/packaged foods
+  // since it's built from real product barcodes. Quality varies by item (crowd-sourced),
+  // so results just pre-fill the form below rather than saving directly — always editable
+  // before it's added to your list.
+  function searchOpenFoodFacts(query){
+    var url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
+      encodeURIComponent(query) + "&search_simple=1&action=process&json=1&page_size=6";
+    return fetch(url).then(function(res){
+      if(!res.ok) throw new Error("Search request failed (" + res.status + ")");
+      return res.json();
+    }).then(function(data){
+      var products = (data && data.products) || [];
+      return products.map(function(p){
+        var n = p.nutriments || {};
+        var perServing = n["energy-kcal_serving"] != null;
+        return {
+          name: p.product_name || p.generic_name || query,
+          brand: p.brands || "",
+          calories: Math.round(perServing ? n["energy-kcal_serving"] : (n["energy-kcal_100g"] || 0)),
+          protein: Math.round((perServing ? n["proteins_serving"] : n["proteins_100g"]) || 0),
+          carbs: Math.round((perServing ? n["carbohydrates_serving"] : n["carbohydrates_100g"]) || 0),
+          fat: Math.round((perServing ? n["fat_serving"] : n["fat_100g"]) || 0),
+          servingNote: perServing ? (p.serving_size || "per serving") : "per 100g — adjust for your actual portion"
+        };
+      }).filter(function(f){ return f.calories || f.protein || f.carbs || f.fat; });
+    });
+  }
+
+  function fillFoodForm(food){
+    document.getElementById("foodNameInput").value = food.name || "";
+    document.getElementById("foodCaloriesInput").value = food.calories || "";
+    document.getElementById("foodProteinInput").value = food.protein || "";
+    document.getElementById("foodCarbsInput").value = food.carbs || "";
+    document.getElementById("foodFatInput").value = food.fat || "";
+  }
+
+  document.getElementById("foodSearchBtn").addEventListener("click", function(){
+    var query = document.getElementById("foodSearchInput").value.trim();
+    var status = document.getElementById("foodSearchStatus");
+    var results = document.getElementById("foodSearchResults");
+    results.innerHTML = "";
+    if(!query){ status.textContent = "Type something to search for first."; return; }
+    status.textContent = "Searching…";
+    searchOpenFoodFacts(query).then(function(matches){
+      if(!matches.length){
+        status.textContent = "No matches found — enter it manually below.";
+        return;
+      }
+      status.textContent = "Tap a match to fill in the form below (still editable):";
+      matches.forEach(function(m){
+        var btn = document.createElement("button");
+        btn.className = "secondary";
+        btn.style.marginTop = "6px";
+        btn.style.textAlign = "left";
+        btn.style.display = "block";
+        btn.style.width = "100%";
+        var brandTag = m.brand ? (escapeHtml(m.brand) + " — ") : "";
+        btn.innerHTML =
+          '<div style="font-size:13px;">' + brandTag + escapeHtml(m.name) + '</div>' +
+          '<div class="muted" style="font-size:11px; margin-top:2px;">' + m.calories + ' kcal &middot; ' +
+            m.protein + 'g P &middot; ' + m.carbs + 'g C &middot; ' + m.fat + 'g F &middot; ' + escapeHtml(m.servingNote) + '</div>';
+        btn.addEventListener("click", function(){ fillFoodForm(m); });
+        results.appendChild(btn);
+      });
+    }).catch(function(err){
+      console.error("[AMRAP nutrition] food search failed:", err);
+      status.textContent = "Couldn't reach the food database (check your connection) — enter it manually below.";
+    });
+  });
+
+  document.getElementById("saveFoodBtn").addEventListener("click", function(){
+    var name = document.getElementById("foodNameInput").value.trim();
+    if(!name){ alert("Give the food a name first."); return; }
+    var food = {
+      id: makeHistoryId(),
+      name: name,
+      calories: parseFloat(document.getElementById("foodCaloriesInput").value) || 0,
+      protein: parseFloat(document.getElementById("foodProteinInput").value) || 0,
+      carbs: parseFloat(document.getElementById("foodCarbsInput").value) || 0,
+      fat: parseFloat(document.getElementById("foodFatInput").value) || 0
+    };
+    config.foods = config.foods || [];
+    config.foods.push(food);
+    saveConfig(config);
+    ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput"].forEach(function(id){
+      document.getElementById(id).value = "";
+    });
+    document.getElementById("foodSearchResults").innerHTML = "";
+    document.getElementById("foodSearchStatus").textContent = "";
+    renderQuickAddGrid();
+    renderMyFoodsList();
+  });
+
   // ---------- init ----------
   document.getElementById("timeCapSelect").value = String(config.defaultCapMin);
   document.getElementById("capLabel").textContent = config.defaultCapMin;
@@ -2575,6 +2901,7 @@
   renderSetup();
   renderProfile();
   renderCaloriesToday();
+  renderNutrition();
 
 })();
 </script>
