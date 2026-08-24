@@ -546,6 +546,21 @@
 
   function mkEx(name){ return { name:name, reps:10, weight:"" }; }
 
+  // Starter foods seeded once (see starterFoodsSeeded flag below) — pulled from the actual
+  // product nutrition labels on amway.com. The Meal Powder's calorie count wasn't printed as
+  // a clean number on its page, so it's estimated from its own fat/carb/protein grams
+  // (protein 20g*4 + carbs 14g*4 + fat 7g*9 ≈ 199, rounded to 200) — worth double-checking
+  // against the physical label if you want it exact.
+  var STARTER_FOODS = [
+    { name:"XS Sports Protein Shake – Rich Chocolate (1 container)", calories:170, protein:25, carbs:6, fat:6 },
+    { name:"Nutrilite Organics All-in-One Shake – Chocolate (1 container)", calories:220, protein:20, carbs:21, fat:7 },
+    { name:"Nutrilite Organics Plant Protein Powder – Chocolate (2 scoops)", calories:145, protein:21, carbs:4, fat:5 },
+    { name:"Nutrilite Organics All-in-One Meal Powder – Chocolate (2 scoops)", calories:200, protein:20, carbs:14, fat:7 }
+  ];
+  function buildStarterFoods(){
+    return STARTER_FOODS.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
+
   // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
   function getWeightKg(){
     var p = config.profile;
@@ -605,7 +620,8 @@
       timerDuration: 60,
       soundThroughSilent: false,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
-      foods: [],          // personal quick-add food list: {id, name, protein, carbs, fat, calories, servingLabel}
+      foods: buildStarterFoods(), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
+      starterFoodsSeeded: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null },
       days: {
         1: { locked:false, supersets: [
@@ -671,6 +687,16 @@
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null };
       if(!Array.isArray(cfg.foods)) cfg.foods = [];
       if(typeof cfg.proteinGoalG === "undefined") cfg.proteinGoalG = null;
+      // One-time seed of starter foods for configs saved before the Nutrition tab existed —
+      // additive only (never re-runs once the flag is set), so it won't resurrect foods you
+      // later delete or duplicate itself on repeat loads.
+      if(!cfg.starterFoodsSeeded){
+        cfg.foods = cfg.foods.concat(buildStarterFoods());
+        cfg.starterFoodsSeeded = true;
+        // Persist immediately — otherwise this would silently re-run (and re-add the same
+        // foods again) on every single page load, since the flag would never actually stick.
+        try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(cfg)); }catch(e){}
+      }
       return cfg;
     }catch(e){ return fresh; }
   }
