@@ -560,6 +560,22 @@
   function buildStarterFoods(){
     return STARTER_FOODS.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
   }
+  // Added after the first batch above was already seeded on existing devices — a separate
+  // one-time flag (starterFoodsSeededV2) so this one addition doesn't re-trigger the whole
+  // first batch again for anyone who already has it.
+  var STARTER_FOODS_V2 = [
+    { name:"XS Grass-Fed Whey Protein – Chocolate (1 scoop)", calories:140, protein:30, carbs:2, fat:1.5 }
+  ];
+  function buildStarterFoodsV2(){
+    return STARTER_FOODS_V2.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
+  // USDA standard values for one large egg (whole, cooked) — same one-time-seed pattern.
+  var STARTER_FOODS_V3 = [
+    { name:"Egg (1 large)", calories:72, protein:6, carbs:0.4, fat:5 }
+  ];
+  function buildStarterFoodsV3(){
+    return STARTER_FOODS_V3.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
 
   // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
   function getWeightKg(){
@@ -620,8 +636,10 @@
       timerDuration: 60,
       soundThroughSilent: false,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
-      foods: buildStarterFoods(), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
+      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
+      starterFoodsSeededV2: true,
+      starterFoodsSeededV3: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null },
       days: {
         1: { locked:false, supersets: [
@@ -690,9 +708,23 @@
       // One-time seed of starter foods for configs saved before the Nutrition tab existed —
       // additive only (never re-runs once the flag is set), so it won't resurrect foods you
       // later delete or duplicate itself on repeat loads.
+      var starterFoodsChanged = false;
       if(!cfg.starterFoodsSeeded){
         cfg.foods = cfg.foods.concat(buildStarterFoods());
         cfg.starterFoodsSeeded = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.starterFoodsSeededV2){
+        cfg.foods = cfg.foods.concat(buildStarterFoodsV2());
+        cfg.starterFoodsSeededV2 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.starterFoodsSeededV3){
+        cfg.foods = cfg.foods.concat(buildStarterFoodsV3());
+        cfg.starterFoodsSeededV3 = true;
+        starterFoodsChanged = true;
+      }
+      if(starterFoodsChanged){
         // Persist immediately — otherwise this would silently re-run (and re-add the same
         // foods again) on every single page load, since the flag would never actually stick.
         try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(cfg)); }catch(e){}
