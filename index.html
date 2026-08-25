@@ -662,6 +662,13 @@
   function buildStarterFoodsV4(){
     return STARTER_FOODS_V4.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
   }
+  // Pulled straight from the product's Nutrition Facts panel (1 can, 12 fl oz).
+  var STARTER_FOODS_V5 = [
+    { name:"XS Energy Drink – Summit (1 can, 12 oz)", calories:15, protein:2, carbs:0, fat:0 }
+  ];
+  function buildStarterFoodsV5(){
+    return STARTER_FOODS_V5.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
 
   // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
   function getWeightKg(){
@@ -722,12 +729,13 @@
       timerDuration: 60,
       soundThroughSilent: false,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
-      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
+      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
       starterFoodsSeededV2: true,
       starterFoodsSeededV3: true,
       scoopFixApplied: true,
       starterFoodsSeededV4: true,
+      starterFoodsSeededV5: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -822,6 +830,11 @@
       if(!cfg.starterFoodsSeededV4){
         cfg.foods = cfg.foods.concat(buildStarterFoodsV4());
         cfg.starterFoodsSeededV4 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.starterFoodsSeededV5){
+        cfg.foods = cfg.foods.concat(buildStarterFoodsV5());
+        cfg.starterFoodsSeededV5 = true;
         starterFoodsChanged = true;
       }
       if(starterFoodsChanged){
