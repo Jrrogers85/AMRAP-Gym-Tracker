@@ -541,11 +541,12 @@
   var STORAGE_SYNC_META = "amrap_sync_meta_v1";
   var STORAGE_SYNC_CODE = "amrap_sync_code_v1";
   var STORAGE_DELETED_IDS = "amrap_deleted_ids_v1";
-  // Nutrition log is local-only for now (not part of cloud sync yet) — the food LIST
-  // (config.foods) rides along with the rest of config and does sync, since that's a small,
-  // rarely-changing list, but the day-to-day log is high-frequency and would need its own
-  // merge/tombstone logic like History has. Flagged as a clear follow-up, not done here.
+  // Nutrition log syncs the same way History does: merged by id across devices, with its
+  // own tombstone list so a deleted food entry doesn't get resurrected by another device's
+  // still-intact copy. config.foods (the saved food LIST) rides along with the rest of
+  // config separately, since that's a small, rarely-changing list.
   var STORAGE_NUTRITION_LOG = "amrap_nutrition_log_v1";
+  var STORAGE_DELETED_NUTRITION_IDS = "amrap_deleted_nutrition_ids_v1";
 
   // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
   var PUSH_EXERCISES = [
@@ -888,6 +889,29 @@
   }
   function keySetOf(historyArr){ return historyArr.map(historyRecordKey).sort().join(","); }
 
+  // Same tombstone approach as history deletions, but for individual nutrition log entries.
+  function loadDeletedNutritionIds(){
+    try{ var raw = localStorage.getItem(STORAGE_DELETED_NUTRITION_IDS); return raw ? JSON.parse(raw) : []; }catch(e){ return []; }
+  }
+  function saveDeletedNutritionIdsRaw(ids){ try{ localStorage.setItem(STORAGE_DELETED_NUTRITION_IDS, JSON.stringify(ids)); }catch(e){} }
+  function recordDeletedNutritionId(id){
+    var ids = loadDeletedNutritionIds();
+    if(ids.indexOf(id) === -1){ ids.push(id); saveDeletedNutritionIdsRaw(ids); }
+  }
+  // Entries always have an id (assigned via makeHistoryId() when logged), so merging is a
+  // simple id-based union — same shape as mergeHistories but without the legacy-record
+  // fallback key, since there's no pre-id nutrition data to worry about.
+  function nutritionEntryKey(e){ return e.id; }
+  function mergeNutritionLogs(a, b){
+    var map = {};
+    a.concat(b).forEach(function(e){ map[nutritionEntryKey(e)] = e; });
+    var merged = [];
+    for(var k in map){ if(Object.prototype.hasOwnProperty.call(map, k)) merged.push(map[k]); }
+    merged.sort(function(x, y){ return new Date(y.loggedAt) - new Date(x.loggedAt); });
+    return merged;
+  }
+  function nutritionKeySetOf(logArr){ return logArr.map(nutritionEntryKey).sort().join(","); }
+
   var config = loadConfig();
 
   // ---------- Cloud sync (Firebase) ----------
@@ -949,27 +973,37 @@
     }
     // Backward compatible with documents written before this change (structured fields
     // instead of a blob) — reads them fine; the next push converts them to the new shape.
-    if(data.config){ return { config: data.config, history: data.history || [], deletedIds: data.deletedIds || [] }; }
+    if(data.config){
+      return {
+        config: data.config, history: data.history || [], deletedIds: data.deletedIds || [],
+        nutritionLog: data.nutritionLog || [], deletedNutritionIds: data.deletedNutritionIds || []
+      };
+    }
     return null;
   }
 
-  function cloudPush(cfgArg, histArg, delArg){
+  function cloudPush(cfgArg, histArg, delArg, nutArg, delNutArg){
     if(!cloudDb || !cloudAuthed){ console.warn("[AMRAP sync] push skipped — not connected yet"); return; }
     try{
       var ts = Date.now();
       var payloadHistory = histArg !== undefined ? histArg : loadHistory();
       var payloadDeleted = delArg !== undefined ? delArg : loadDeletedIds();
+      var payloadNutrition = nutArg !== undefined ? nutArg : loadNutritionLog();
+      var payloadDeletedNutrition = delNutArg !== undefined ? delNutArg : loadDeletedNutritionIds();
       var blob = JSON.stringify({
         config: cfgArg !== undefined ? cfgArg : config,
         history: payloadHistory,
-        deletedIds: payloadDeleted
+        deletedIds: payloadDeleted,
+        nutritionLog: payloadNutrition,
+        deletedNutritionIds: payloadDeletedNutrition
       });
       cloudDb.collection("users").doc(getSyncCode()).set({
         blob: blob,
         updatedAt: ts
       }).then(function(){
         setLastSyncedAt(ts);
-        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + payloadHistory.length + " history entries, " + payloadDeleted.length + " tombstones, ts " + ts);
+        console.log("[AMRAP sync] pushed OK — code " + getSyncCode() + ", " + payloadHistory.length + " history entries, " + payloadDeleted.length + " tombstones, " +
+          payloadNutrition.length + " nutrition entries, " + payloadDeletedNutrition.length + " nutrition tombstones, ts " + ts);
       }).catch(function(err){
         console.error("[AMRAP sync] push FAILED — code " + getSyncCode() + ":", err);
       });
@@ -1019,12 +1053,32 @@
       var localDeletedChanged = mergedDeleted.length !== localDeleted.length;
       var cloudDeletedStale = mergedDeleted.length !== cloudDeleted.length;
 
+      // Same merge-then-tombstone treatment for the nutrition log, so logging food on two
+      // devices without refreshing in between keeps both entries, and a deleted entry stays
+      // deleted instead of getting restored by the other device's still-intact copy.
+      var localNutrition = loadNutritionLog();
+      var cloudNutrition = data.nutritionLog || [];
+      var localDeletedNutrition = loadDeletedNutritionIds();
+      var cloudDeletedNutrition = data.deletedNutritionIds || [];
+
+      var mergedDeletedNutrition = unionStrings(localDeletedNutrition, cloudDeletedNutrition);
+      var mergedNutrition = mergeNutritionLogs(localNutrition, cloudNutrition).filter(function(e){
+        return mergedDeletedNutrition.indexOf(nutritionEntryKey(e)) === -1;
+      });
+
+      var localNutritionChanged = nutritionKeySetOf(mergedNutrition) !== nutritionKeySetOf(localNutrition);
+      var cloudNutritionStale = nutritionKeySetOf(mergedNutrition) !== nutritionKeySetOf(cloudNutrition);
+      var localDeletedNutritionChanged = mergedDeletedNutrition.length !== localDeletedNutrition.length;
+      var cloudDeletedNutritionStale = mergedDeletedNutrition.length !== cloudDeletedNutrition.length;
+
       var cloudTs = raw.updatedAt || 0;
       var lastSyncedAt = getLastSyncedAt();
       var configIsNewer = cloudTs > lastSyncedAt;
 
       console.log("[AMRAP sync] cloud check — local history: " + localHistory.length + ", cloud history: " + cloudHistory.length +
         ", merged (post-tombstone): " + mergedHistory.length + ", tombstones: " + mergedDeleted.length +
+        ", local nutrition: " + localNutrition.length + ", cloud nutrition: " + cloudNutrition.length +
+        ", merged nutrition (post-tombstone): " + mergedNutrition.length + ", nutrition tombstones: " + mergedDeletedNutrition.length +
         ", cloudTs: " + cloudTs + ", lastSyncedAt: " + lastSyncedAt);
 
       var localChanged = false;
@@ -1033,16 +1087,21 @@
         saveDeletedIdsRaw(mergedDeleted);
         localChanged = true;
       }
+      if(localNutritionChanged || localDeletedNutritionChanged){
+        try{ localStorage.setItem(STORAGE_NUTRITION_LOG, JSON.stringify(mergedNutrition)); }catch(e){}
+        saveDeletedNutritionIdsRaw(mergedDeletedNutrition);
+        localChanged = true;
+      }
       if(configIsNewer){
         try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
         localChanged = true;
       }
       setLastSyncedAt(Math.max(cloudTs, lastSyncedAt));
 
-      if(cloudHistoryStale || cloudDeletedStale){
+      if(cloudHistoryStale || cloudDeletedStale || cloudNutritionStale || cloudDeletedNutritionStale){
         // Cloud doesn't yet reflect the full reconciled picture (missing entries, or missing
         // a deletion) — push the merged result up so the cloud (and other devices) catch up.
-        cloudPush(undefined, mergedHistory, mergedDeleted);
+        cloudPush(undefined, mergedHistory, mergedDeleted, mergedNutrition, mergedDeletedNutrition);
       }
 
       if(localChanged){
@@ -1075,6 +1134,8 @@
         try{ localStorage.setItem(STORAGE_CONFIG, JSON.stringify(data.config)); }catch(e){}
         try{ localStorage.setItem(STORAGE_HISTORY, JSON.stringify(data.history || [])); }catch(e){}
         saveDeletedIdsRaw(data.deletedIds || []);
+        try{ localStorage.setItem(STORAGE_NUTRITION_LOG, JSON.stringify(data.nutritionLog || [])); }catch(e){}
+        saveDeletedNutritionIdsRaw(data.deletedNutritionIds || []);
         setLastSyncedAt((raw && raw.updatedAt) || Date.now());
         location.reload();
       } else {
@@ -1083,7 +1144,10 @@
         // can't get cut off mid-flight by the page navigating away.
         var ts = Date.now();
         cloudDb.collection("users").doc(code).set({
-          blob: JSON.stringify({ config: config, history: loadHistory(), deletedIds: loadDeletedIds() }),
+          blob: JSON.stringify({
+            config: config, history: loadHistory(), deletedIds: loadDeletedIds(),
+            nutritionLog: loadNutritionLog(), deletedNutritionIds: loadDeletedNutritionIds()
+          }),
           updatedAt: ts
         }).then(function(){
           setLastSyncedAt(ts);
@@ -2445,7 +2509,8 @@
     var backup = {
       exportedAt: new Date().toISOString(),
       config: config,
-      history: loadHistory()
+      history: loadHistory(),
+      nutritionLog: loadNutritionLog()
     };
     var json = JSON.stringify(backup, null, 2);
     var blob = new Blob([json], { type: "application/json" });
@@ -2795,9 +2860,9 @@
     alert("Added to History.");
   });
 
-  // ---------- Nutrition (local-only for now — not yet part of cloud sync; config.foods
-  // rides along with the rest of config and DOES sync, since it's a small list, but the
-  // day-to-day log is high-frequency and would need its own merge logic like History has) ----------
+  // ---------- Nutrition (log syncs across devices the same way History does — see
+  // mergeNutritionLogs()/cloudPullOnce() — config.foods rides along with the rest of
+  // config separately, since it's a small, rarely-changing list) ----------
   function loadNutritionLog(){
     try{
       var raw = localStorage.getItem(STORAGE_NUTRITION_LOG);
@@ -2805,7 +2870,7 @@
     }catch(e){ return []; }
   }
   function saveNutritionLog(log){
-    try{ localStorage.setItem(STORAGE_NUTRITION_LOG, JSON.stringify(log)); }catch(e){}
+    try{ localStorage.setItem(STORAGE_NUTRITION_LOG, JSON.stringify(log)); }catch(e){} cloudPush(undefined, undefined, undefined, log);
   }
   function todaysNutritionEntries(){
     var todayStr = new Date().toDateString();
@@ -3023,6 +3088,7 @@
       delBtn.textContent = "🗑";
       delBtn.addEventListener("click", function(){
         var log = loadNutritionLog().filter(function(e){ return e.id !== entry.id; });
+        recordDeletedNutritionId(entry.id);
         saveNutritionLog(log);
         renderNutritionTotals();
         renderLoggedTodayList();
