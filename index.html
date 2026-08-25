@@ -361,16 +361,32 @@
     <div class="card">
       <h2>Today's Nutrition</h2>
       <div class="flex-between" style="font-size:14px;">
+        <span>Calories</span>
+        <span id="nutCaloriesLabel" class="muted">0 / 0</span>
+      </div>
+      <div style="height:8px; background:var(--card2); border-radius:6px; overflow:hidden; margin:6px 0 12px;">
+        <div id="nutCaloriesBar" style="height:100%; width:0%; background:var(--blue); transition:width 0.3s;"></div>
+      </div>
+      <div class="flex-between" style="font-size:14px;">
         <span>Protein</span>
         <span id="nutProteinLabel" class="muted">0g / 0g</span>
       </div>
       <div style="height:8px; background:var(--card2); border-radius:6px; overflow:hidden; margin:6px 0 12px;">
         <div id="nutProteinBar" style="height:100%; width:0%; background:var(--accent); transition:width 0.3s;"></div>
       </div>
-      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center;">
-        <div><div class="clock" style="font-size:18px;" id="nutCaloriesValue">0</div><div class="day-nav-label" style="margin-top:0;">kcal</div></div>
-        <div><div class="clock" style="font-size:18px;" id="nutCarbsValue">0g</div><div class="day-nav-label" style="margin-top:0;">carbs</div></div>
-        <div><div class="clock" style="font-size:18px;" id="nutFatValue">0g</div><div class="day-nav-label" style="margin-top:0;">fat</div></div>
+      <div class="flex-between" style="font-size:14px;">
+        <span>Carbs</span>
+        <span id="nutCarbsLabel" class="muted">0g / 0g</span>
+      </div>
+      <div style="height:8px; background:var(--card2); border-radius:6px; overflow:hidden; margin:6px 0 12px;">
+        <div id="nutCarbsBar" style="height:100%; width:0%; background:var(--accent2); transition:width 0.3s;"></div>
+      </div>
+      <div class="flex-between" style="font-size:14px;">
+        <span>Fat</span>
+        <span id="nutFatLabel" class="muted">0g / 0g</span>
+      </div>
+      <div style="height:8px; background:var(--card2); border-radius:6px; overflow:hidden; margin:6px 0;">
+        <div id="nutFatBar" style="height:100%; width:0%; background:var(--danger); transition:width 0.3s;"></div>
       </div>
       <p class="muted" style="font-size:12px; margin:10px 0 0;" id="nutProteinGoalNote"></p>
     </div>
@@ -396,24 +412,45 @@
         <div id="foodSearchResults"></div>
 
         <div class="exercise-row" style="margin-top:12px;"><div style="flex:1; font-size:15px;">Name</div><input type="text" id="foodNameInput" placeholder="Food name" style="width:190px;"></div>
-        <div class="exercise-row"><div style="flex:1; font-size:15px;">Calories</div><input type="number" inputmode="numeric" id="foodCaloriesInput" min="0" style="width:90px;"></div>
-        <div class="exercise-row"><div style="flex:1; font-size:15px;">Protein (g)</div><input type="number" inputmode="decimal" id="foodProteinInput" min="0" style="width:90px;"></div>
-        <div class="exercise-row"><div style="flex:1; font-size:15px;">Carbs (g)</div><input type="number" inputmode="decimal" id="foodCarbsInput" min="0" style="width:90px;"></div>
-        <div class="exercise-row"><div style="flex:1; font-size:15px;">Fat (g)</div><input type="number" inputmode="decimal" id="foodFatInput" min="0" style="width:90px;"></div>
+
+        <label style="display:flex; align-items:center; gap:8px; margin:4px 0 8px; font-size:13px; color:var(--muted); cursor:pointer;">
+          <input type="checkbox" id="foodPerUnitToggle" style="width:auto; margin:0;">
+          Amount varies each time (like a poured liquid) — enter it per unit instead of a fixed serving
+        </label>
+
+        <div id="foodFixedFields">
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Calories</div><input type="number" inputmode="numeric" id="foodCaloriesInput" min="0" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Protein (g)</div><input type="number" inputmode="decimal" id="foodProteinInput" min="0" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Carbs (g)</div><input type="number" inputmode="decimal" id="foodCarbsInput" min="0" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Fat (g)</div><input type="number" inputmode="decimal" id="foodFatInput" min="0" style="width:90px;"></div>
+        </div>
+
+        <div id="foodPerUnitFields" style="display:none;">
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Unit (e.g. "fl oz")</div><input type="text" id="foodUnitInput" placeholder="fl oz" style="width:90px;"></div>
+          <p class="muted" style="font-size:12px; margin:4px 0 8px;">Enter the nutrition facts label's serving size and its values below — we'll work out the per-unit math for you.</p>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Label serving size (units)</div><input type="number" inputmode="decimal" id="foodUnitServingInput" min="0" placeholder="e.g. 8" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Calories (for that serving)</div><input type="number" inputmode="numeric" id="foodUnitCaloriesInput" min="0" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Protein (g, for that serving)</div><input type="number" inputmode="decimal" id="foodUnitProteinInput" min="0" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Carbs (g, for that serving)</div><input type="number" inputmode="decimal" id="foodUnitCarbsInput" min="0" style="width:90px;"></div>
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Fat (g, for that serving)</div><input type="number" inputmode="decimal" id="foodUnitFatInput" min="0" style="width:90px;"></div>
+        </div>
+
         <button class="primary" id="saveFoodBtn" style="margin-top:10px;">➕ Save to My Foods</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>My Foods</h2>
-      <div id="myFoodsList"></div>
-      <p class="muted" id="myFoodsEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing saved yet.</p>
     </div>
 
     <div class="card">
       <h2>Logged Today</h2>
       <div id="loggedTodayList"></div>
       <p class="muted" id="loggedTodayEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing logged yet today.</p>
+    </div>
+
+    <div class="card">
+      <details id="myFoodsDetails">
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="myFoodsSummary">My Foods</summary>
+        <div id="myFoodsList" style="margin-top:10px;"></div>
+        <p class="muted" id="myFoodsEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing saved yet.</p>
+      </details>
     </div>
   </section>
 
@@ -446,8 +483,27 @@
         <div style="flex:1; font-size:15px;">Weight</div>
         <input type="number" id="profileWeight" placeholder="lb" min="0" style="width:90px;">
       </div>
+      <div class="exercise-row">
+        <div style="flex:1; font-size:15px;">Activity Level</div>
+        <select id="profileActivityLevel" style="width:150px;">
+          <option value="sedentary">Sedentary</option>
+          <option value="light">Light (1-3 days/wk)</option>
+          <option value="moderate">Moderate (3-5 days/wk)</option>
+          <option value="active">Active (6-7 days/wk)</option>
+          <option value="veryActive">Very Active</option>
+        </select>
+      </div>
+      <div class="exercise-row">
+        <div style="flex:1; font-size:15px;">Goal</div>
+        <select id="profileGoal" style="width:150px;">
+          <option value="maintain">Maintain</option>
+          <option value="lose">Lose Weight</option>
+          <option value="gain">Build Muscle</option>
+        </select>
+      </div>
 
       <p class="day-nav-label" id="profileBMRDisplay" style="margin-top:12px;">Fill in all fields to see your estimated BMR.</p>
+      <p class="muted" style="font-size:12px; margin:6px 0 0;">Activity level and goal are used to estimate daily calorie/protein/carb/fat targets on the Nutrition tab &mdash; rough guides, not medical advice.</p>
     </div>
 
     <div class="card" id="exportCard">
@@ -554,8 +610,10 @@
   var STARTER_FOODS = [
     { name:"XS Sports Protein Shake – Rich Chocolate (1 container)", calories:170, protein:25, carbs:6, fat:6 },
     { name:"Nutrilite Organics All-in-One Shake – Chocolate (1 container)", calories:220, protein:20, carbs:21, fat:7 },
-    { name:"Nutrilite Organics Plant Protein Powder – Chocolate (2 scoops)", calories:145, protein:21, carbs:4, fat:5 },
-    { name:"Nutrilite Organics All-in-One Meal Powder – Chocolate (2 scoops)", calories:200, protein:20, carbs:14, fat:7 }
+    // Label values were per 2 scoops — halved here so each quick-add tap is 1 scoop, and you
+    // can just tap it again for a 2nd or 3rd scoop instead of it being locked to a fixed amount.
+    { name:"Nutrilite Organics Plant Protein Powder – Chocolate (1 scoop)", calories:72.5, protein:10.5, carbs:2, fat:2.5 },
+    { name:"Nutrilite Organics All-in-One Meal Powder – Chocolate (1 scoop)", calories:100, protein:10, carbs:7, fat:3.5 }
   ];
   function buildStarterFoods(){
     return STARTER_FOODS.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
@@ -575,6 +633,33 @@
   ];
   function buildStarterFoodsV3(){
     return STARTER_FOODS_V3.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
+  // Patches the two scoop-based starter foods that were originally seeded as "2 scoops" down
+  // to "1 scoop" (halved macros), so a single quick-add tap = 1 scoop and you can tap it more
+  // than once for 2 or 3 scoops. Matches by the old name text (one-time, flag-gated below).
+  var SCOOP_FIX_PATCHES = [
+    { oldName:"Nutrilite Organics Plant Protein Powder – Chocolate (2 scoops)",
+      updated:{ name:"Nutrilite Organics Plant Protein Powder – Chocolate (1 scoop)", calories:72.5, protein:10.5, carbs:2, fat:2.5 } },
+    { oldName:"Nutrilite Organics All-in-One Meal Powder – Chocolate (2 scoops)",
+      updated:{ name:"Nutrilite Organics All-in-One Meal Powder – Chocolate (1 scoop)", calories:100, protein:10, carbs:7, fat:3.5 } }
+  ];
+  function applyScoopFixPatches(foods){
+    return foods.map(function(f){
+      var patch = SCOOP_FIX_PATCHES.filter(function(p){ return p.oldName === f.name; })[0];
+      return patch ? Object.assign({}, f, patch.updated) : f;
+    });
+  }
+  // First "amount varies" starter food — label is per 1 cup (8 fl oz): 30 kcal, 1g protein,
+  // 1g carbs, 2.5g fat, divided down to a per-fl-oz basis. Couldn't load the live product
+  // page (Walmart's page didn't return readable content and the browser tool wasn't
+  // connected), so these are the standard, well-established label values for this product —
+  // worth a quick check against your carton if you want it exact.
+  var STARTER_FOODS_V4 = [
+    { name:"Almond Breeze Unsweetened Original Almond Milk", isPerUnit:true, unit:"fl oz",
+      unitCalories:3.75, unitProtein:0.125, unitCarbs:0.125, unitFat:0.3125, defaultQty:8 }
+  ];
+  function buildStarterFoodsV4(){
+    return STARTER_FOODS_V4.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
   }
 
   // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
@@ -636,11 +721,13 @@
       timerDuration: 60,
       soundThroughSilent: false,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
-      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
+      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
       starterFoodsSeededV2: true,
       starterFoodsSeededV3: true,
-      profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null },
+      scoopFixApplied: true,
+      starterFoodsSeededV4: true,
+      profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
               { a:mkEx("Push-up"),        b:mkEx("DB Row") },
@@ -702,7 +789,9 @@
       if(!cfg.timerSound) cfg.timerSound = "beep";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
       if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = false;
-      if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null };
+      if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
+      if(!cfg.profile.activityLevel) cfg.profile.activityLevel = "moderate";
+      if(!cfg.profile.goal) cfg.profile.goal = "maintain";
       if(!Array.isArray(cfg.foods)) cfg.foods = [];
       if(typeof cfg.proteinGoalG === "undefined") cfg.proteinGoalG = null;
       // One-time seed of starter foods for configs saved before the Nutrition tab existed —
@@ -722,6 +811,16 @@
       if(!cfg.starterFoodsSeededV3){
         cfg.foods = cfg.foods.concat(buildStarterFoodsV3());
         cfg.starterFoodsSeededV3 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.scoopFixApplied){
+        cfg.foods = applyScoopFixPatches(cfg.foods);
+        cfg.scoopFixApplied = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.starterFoodsSeededV4){
+        cfg.foods = cfg.foods.concat(buildStarterFoodsV4());
+        cfg.starterFoodsSeededV4 = true;
         starterFoodsChanged = true;
       }
       if(starterFoodsChanged){
@@ -2307,6 +2406,8 @@
     document.getElementById("profileHeightFt").value = p.heightFt || "";
     document.getElementById("profileHeightIn").value = p.heightIn || "";
     document.getElementById("profileWeight").value = p.weightLb || "";
+    document.getElementById("profileActivityLevel").value = p.activityLevel || "moderate";
+    document.getElementById("profileGoal").value = p.goal || "maintain";
     updateBMRDisplay();
     document.getElementById("syncCodeDisplay").textContent = getSyncCode();
   }
@@ -2325,15 +2426,20 @@
     config.profile.heightFt = parseInt(document.getElementById("profileHeightFt").value, 10) || 0;
     config.profile.heightIn = parseInt(document.getElementById("profileHeightIn").value, 10) || 0;
     config.profile.weightLb = parseFloat(document.getElementById("profileWeight").value) || null;
+    config.profile.activityLevel = document.getElementById("profileActivityLevel").value || "moderate";
+    config.profile.goal = document.getElementById("profileGoal").value || "maintain";
     saveConfig(config);
     updateBMRDisplay();
     renderCaloriesToday();
+    renderNutritionTotals();
   }
 
   ["profileAge", "profileHeightFt", "profileHeightIn", "profileWeight"].forEach(function(id){
     document.getElementById(id).addEventListener("input", commitProfileFromInputs);
   });
   document.getElementById("profileSex").addEventListener("change", commitProfileFromInputs);
+  document.getElementById("profileActivityLevel").addEventListener("change", commitProfileFromInputs);
+  document.getElementById("profileGoal").addEventListener("change", commitProfileFromInputs);
 
   document.getElementById("exportBackupBtn").addEventListener("click", function(){
     var backup = {
@@ -2714,11 +2820,48 @@
     return lb ? Math.round(lb * 0.8) : null;
   }
 
+  // Standard Mifflin-St Jeor activity multipliers (TDEE = BMR * multiplier).
+  var ACTIVITY_MULTIPLIERS = { sedentary:1.2, light:1.375, moderate:1.55, active:1.725, veryActive:1.9 };
+  // Rough rule-of-thumb calorie adjustments for common goals — not medical advice.
+  var GOAL_CALORIE_ADJUSTMENTS = { lose:-500, maintain:0, gain:250 };
+
+  // Daily calorie/protein/carb/fat targets, derived from Profile stats (BMR), activity level,
+  // and stated goal. Protein target reuses computeProteinGoalG() (0.8g/lb) unchanged; fat is
+  // set to ~30% of calories (a common general guideline); carbs fill the remaining calories.
+  // Returns null if the profile is incomplete (no BMR to work from).
+  function computeDailyTargets(){
+    var bmr = computeBMR();
+    if(!bmr) return null;
+    var p = config.profile || {};
+    var activityMult = ACTIVITY_MULTIPLIERS[p.activityLevel] || ACTIVITY_MULTIPLIERS.moderate;
+    var tdee = bmr * activityMult;
+    var goalAdj = GOAL_CALORIE_ADJUSTMENTS[p.goal];
+    if(typeof goalAdj !== "number") goalAdj = 0;
+    var calorieGoal = Math.round(tdee + goalAdj);
+    var proteinGoal = computeProteinGoalG() || 0;
+    var fatGoal = Math.round((calorieGoal * 0.3) / 9);
+    var carbCalories = calorieGoal - (proteinGoal * 4) - (fatGoal * 9);
+    var carbGoal = Math.round(Math.max(0, carbCalories) / 4);
+    return { calorieGoal:calorieGoal, proteinGoal:proteinGoal, fatGoal:fatGoal, carbGoal:carbGoal };
+  }
+
   function renderNutrition(){
     renderNutritionTotals();
     renderQuickAddGrid();
     renderMyFoodsList();
     renderLoggedTodayList();
+  }
+
+  function renderNutrientBar(prefix, value, goal, unit){
+    var label = document.getElementById(prefix + "Label");
+    var bar = document.getElementById(prefix + "Bar");
+    if(goal){
+      label.textContent = Math.round(value).toLocaleString() + unit + " / " + Math.round(goal).toLocaleString() + unit;
+      bar.style.width = Math.max(0, Math.min(100, (value/goal)*100)) + "%";
+    } else {
+      label.textContent = Math.round(value).toLocaleString() + unit + " logged";
+      bar.style.width = "0%";
+    }
   }
 
   function renderNutritionTotals(){
@@ -2731,22 +2874,20 @@
       return t;
     }, { calories:0, protein:0, carbs:0, fat:0 });
 
-    var goal = computeProteinGoalG();
-    var label = document.getElementById("nutProteinLabel");
-    var bar = document.getElementById("nutProteinBar");
+    var targets = computeDailyTargets();
+    var proteinGoal = computeProteinGoalG();
     var note = document.getElementById("nutProteinGoalNote");
-    if(goal){
-      label.textContent = Math.round(totals.protein) + "g / " + goal + "g";
-      bar.style.width = Math.max(0, Math.min(100, (totals.protein/goal)*100)) + "%";
-      note.textContent = "Goal is a rough estimate (0.8g per lb bodyweight) — edit your weight in Profile to update it.";
+
+    renderNutrientBar("nutCalories", totals.calories, targets ? targets.calorieGoal : null, "");
+    renderNutrientBar("nutProtein", totals.protein, targets ? targets.proteinGoal : proteinGoal, "g");
+    renderNutrientBar("nutCarbs", totals.carbs, targets ? targets.carbGoal : null, "g");
+    renderNutrientBar("nutFat", totals.fat, targets ? targets.fatGoal : null, "g");
+
+    if(targets){
+      note.textContent = "Targets are rough estimates from your Profile stats, activity level, and goal — adjust those in Profile to fine-tune.";
     } else {
-      label.textContent = Math.round(totals.protein) + "g logged";
-      bar.style.width = "0%";
-      note.textContent = "Add your weight in the Profile tab to see a protein goal.";
+      note.textContent = "Fill in your Profile stats (age, sex, height, weight) to see daily targets.";
     }
-    document.getElementById("nutCaloriesValue").textContent = Math.round(totals.calories).toLocaleString();
-    document.getElementById("nutCarbsValue").textContent = Math.round(totals.carbs) + "g";
-    document.getElementById("nutFatValue").textContent = Math.round(totals.fat) + "g";
   }
 
   function logFoodEntry(food){
@@ -2766,6 +2907,18 @@
     renderLoggedTodayList();
   }
 
+  // For "amount varies" foods (e.g. poured liquids), macros scale with however many units
+  // (fl oz, etc.) you actually had — computed from the per-1-unit values stored on the food.
+  function computeQtyMacros(food, qty){
+    qty = qty || 0;
+    return {
+      calories: (food.unitCalories || 0) * qty,
+      protein: (food.unitProtein || 0) * qty,
+      carbs: (food.unitCarbs || 0) * qty,
+      fat: (food.unitFat || 0) * qty
+    };
+  }
+
   function renderQuickAddGrid(){
     var grid = document.getElementById("quickAddFoodsGrid");
     var emptyMsg = document.getElementById("quickAddEmptyMsg");
@@ -2773,15 +2926,47 @@
     var foods = config.foods || [];
     emptyMsg.style.display = foods.length ? "none" : "block";
     foods.forEach(function(food){
-      var btn = document.createElement("button");
-      btn.className = "secondary";
-      btn.style.marginTop = "0";
-      btn.style.textAlign = "left";
-      btn.innerHTML =
-        '<div style="font-size:13px; font-weight:600;">+ ' + escapeHtml(food.name) + '</div>' +
-        '<div class="muted" style="font-size:11px; margin-top:2px;">' + Math.round(food.protein||0) + 'g protein &middot; ' + Math.round(food.calories||0) + ' kcal</div>';
-      btn.addEventListener("click", function(){ logFoodEntry(food); });
-      grid.appendChild(btn);
+      if(food.isPerUnit){
+        // Full-width card with an adjustable quantity — mirrors the weight/reps number
+        // inputs used elsewhere, since the amount genuinely varies each time (a pour, a
+        // scoop count, etc.) rather than being a fixed single serving.
+        var card = document.createElement("div");
+        card.style.gridColumn = "1 / -1";
+        card.style.background = "var(--card2)";
+        card.style.border = "1px solid var(--border)";
+        card.style.borderRadius = "10px";
+        card.style.padding = "10px";
+        var defaultQty = food.defaultQty || 1;
+        card.innerHTML =
+          '<div style="font-size:13px; font-weight:600;">' + escapeHtml(food.name) + '</div>' +
+          '<div class="muted" style="font-size:11px; margin-top:2px;">' + (food.unitCalories||0).toFixed(2) + ' kcal per ' + escapeHtml(food.unit||"unit") + '</div>' +
+          '<div class="row2" style="margin-top:8px; align-items:center;">' +
+            '<input type="number" inputmode="decimal" min="0" step="0.5" value="' + defaultQty + '" class="qtyInput" style="text-align:center;">' +
+            '<button class="primary logQtyBtn" style="margin-top:0;">+ Log</button>' +
+          '</div>';
+        var qtyInput = card.querySelector(".qtyInput");
+        card.querySelector(".logQtyBtn").addEventListener("click", function(){
+          var qty = parseFloat(qtyInput.value) || 0;
+          if(qty <= 0){ alert("Enter an amount first."); return; }
+          var macros = computeQtyMacros(food, qty);
+          logFoodEntry({
+            id: food.id,
+            name: food.name + " (" + qty + " " + (food.unit || "unit") + ")",
+            calories: macros.calories, protein: macros.protein, carbs: macros.carbs, fat: macros.fat
+          });
+        });
+        grid.appendChild(card);
+      } else {
+        var btn = document.createElement("button");
+        btn.className = "secondary";
+        btn.style.marginTop = "0";
+        btn.style.textAlign = "left";
+        btn.innerHTML =
+          '<div style="font-size:13px; font-weight:600;">+ ' + escapeHtml(food.name) + '</div>' +
+          '<div class="muted" style="font-size:11px; margin-top:2px;">' + Math.round(food.protein||0) + 'g protein &middot; ' + Math.round(food.calories||0) + ' kcal</div>';
+        btn.addEventListener("click", function(){ logFoodEntry(food); });
+        grid.appendChild(btn);
+      }
     });
   }
 
@@ -2790,14 +2975,19 @@
     var emptyMsg = document.getElementById("myFoodsEmptyMsg");
     wrap.innerHTML = "";
     var foods = config.foods || [];
+    document.getElementById("myFoodsSummary").textContent = "My Foods (" + foods.length + ")";
     emptyMsg.style.display = foods.length ? "none" : "block";
     foods.forEach(function(food){
       var row = document.createElement("div");
       row.className = "exercise-row";
+      var detailLine = food.isPerUnit
+        ? (food.unitCalories||0).toFixed(2) + ' kcal &middot; ' + (food.unitProtein||0).toFixed(2) + 'g P &middot; ' +
+          (food.unitCarbs||0).toFixed(2) + 'g C &middot; ' + (food.unitFat||0).toFixed(2) + 'g F &mdash; per ' + escapeHtml(food.unit||"unit")
+        : Math.round(food.calories||0) + ' kcal &middot; ' + Math.round(food.protein||0) + 'g P &middot; ' +
+          Math.round(food.carbs||0) + 'g C &middot; ' + Math.round(food.fat||0) + 'g F';
       row.innerHTML =
         '<div style="flex:1; min-width:0; font-size:14px;">' + escapeHtml(food.name) +
-        '<div class="muted" style="font-size:11px;">' + Math.round(food.calories||0) + ' kcal &middot; ' +
-          Math.round(food.protein||0) + 'g P &middot; ' + Math.round(food.carbs||0) + 'g C &middot; ' + Math.round(food.fat||0) + 'g F</div></div>';
+        '<div class="muted" style="font-size:11px;">' + detailLine + '</div></div>';
       var delBtn = document.createElement("button");
       delBtn.className = "small danger";
       delBtn.style.marginTop = "0";
@@ -2848,6 +3038,11 @@
     var open = fields.style.display !== "none";
     fields.style.display = open ? "none" : "block";
     chevron.textContent = open ? "▸ Show" : "▾ Hide";
+  });
+
+  document.getElementById("foodPerUnitToggle").addEventListener("change", function(e){
+    document.getElementById("foodFixedFields").style.display = e.target.checked ? "none" : "block";
+    document.getElementById("foodPerUnitFields").style.display = e.target.checked ? "block" : "none";
   });
 
   // Free, open, crowd-sourced food database — good coverage of branded/packaged foods
@@ -2923,20 +3118,47 @@
   document.getElementById("saveFoodBtn").addEventListener("click", function(){
     var name = document.getElementById("foodNameInput").value.trim();
     if(!name){ alert("Give the food a name first."); return; }
-    var food = {
-      id: makeHistoryId(),
-      name: name,
-      calories: parseFloat(document.getElementById("foodCaloriesInput").value) || 0,
-      protein: parseFloat(document.getElementById("foodProteinInput").value) || 0,
-      carbs: parseFloat(document.getElementById("foodCarbsInput").value) || 0,
-      fat: parseFloat(document.getElementById("foodFatInput").value) || 0
-    };
+    var isPerUnit = document.getElementById("foodPerUnitToggle").checked;
+    var food;
+    if(isPerUnit){
+      var unit = document.getElementById("foodUnitInput").value.trim() || "unit";
+      var servingSize = parseFloat(document.getElementById("foodUnitServingInput").value) || 0;
+      if(servingSize <= 0){ alert("Enter the label's serving size (in units) first."); return; }
+      var labelCalories = parseFloat(document.getElementById("foodUnitCaloriesInput").value) || 0;
+      var labelProtein = parseFloat(document.getElementById("foodUnitProteinInput").value) || 0;
+      var labelCarbs = parseFloat(document.getElementById("foodUnitCarbsInput").value) || 0;
+      var labelFat = parseFloat(document.getElementById("foodUnitFatInput").value) || 0;
+      food = {
+        id: makeHistoryId(),
+        name: name,
+        isPerUnit: true,
+        unit: unit,
+        unitCalories: labelCalories / servingSize,
+        unitProtein: labelProtein / servingSize,
+        unitCarbs: labelCarbs / servingSize,
+        unitFat: labelFat / servingSize,
+        defaultQty: servingSize
+      };
+    } else {
+      food = {
+        id: makeHistoryId(),
+        name: name,
+        calories: parseFloat(document.getElementById("foodCaloriesInput").value) || 0,
+        protein: parseFloat(document.getElementById("foodProteinInput").value) || 0,
+        carbs: parseFloat(document.getElementById("foodCarbsInput").value) || 0,
+        fat: parseFloat(document.getElementById("foodFatInput").value) || 0
+      };
+    }
     config.foods = config.foods || [];
     config.foods.push(food);
     saveConfig(config);
-    ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput"].forEach(function(id){
+    ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput",
+     "foodUnitInput","foodUnitServingInput","foodUnitCaloriesInput","foodUnitProteinInput","foodUnitCarbsInput","foodUnitFatInput"].forEach(function(id){
       document.getElementById(id).value = "";
     });
+    document.getElementById("foodPerUnitToggle").checked = false;
+    document.getElementById("foodFixedFields").style.display = "block";
+    document.getElementById("foodPerUnitFields").style.display = "none";
     document.getElementById("foodSearchResults").innerHTML = "";
     document.getElementById("foodSearchStatus").textContent = "";
     renderQuickAddGrid();
