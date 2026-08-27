@@ -466,6 +466,8 @@
         </div>
 
         <button class="primary" id="saveFoodBtn" style="margin-top:10px;">➕ Save to My Foods</button>
+        <button class="secondary" id="logOnceBtn" style="margin-top:8px;">📝 Log just this once</button>
+        <p class="muted" style="font-size:12px; margin:6px 0 0;">"Log just this once" adds it to today's log only — nothing gets saved for next time.</p>
       </div>
     </div>
 
@@ -3365,6 +3367,45 @@
     });
   });
 
+  function resetAddFoodForm(){
+    ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput",
+     "foodUnitInput","foodUnitServingInput","foodUnitCaloriesInput","foodUnitProteinInput","foodUnitCarbsInput","foodUnitFatInput"].forEach(function(id){
+      document.getElementById(id).value = "";
+    });
+    document.getElementById("foodPerUnitToggle").checked = false;
+    document.getElementById("foodFixedFields").style.display = "block";
+    document.getElementById("foodPerUnitFields").style.display = "none";
+    document.getElementById("foodSearchResults").innerHTML = "";
+    document.getElementById("foodSearchStatus").textContent = "";
+  }
+
+  // Reads the Add Food form as a one-off {name, calories, protein, carbs, fat} for logging
+  // directly — used by "Log just this once", which skips saving anything to My Foods. For
+  // the per-unit fields, the entered "for that serving" values ARE the total for this single
+  // instance, so no per-unit division is needed here (that math only matters for a food you're
+  // saving to reuse with a different quantity next time).
+  function readAddFoodTotals(){
+    var name = document.getElementById("foodNameInput").value.trim();
+    if(!name){ alert("Give the food a name first."); return null; }
+    var isPerUnit = document.getElementById("foodPerUnitToggle").checked;
+    if(isPerUnit){
+      return {
+        name: name,
+        calories: parseFloat(document.getElementById("foodUnitCaloriesInput").value) || 0,
+        protein: parseFloat(document.getElementById("foodUnitProteinInput").value) || 0,
+        carbs: parseFloat(document.getElementById("foodUnitCarbsInput").value) || 0,
+        fat: parseFloat(document.getElementById("foodUnitFatInput").value) || 0
+      };
+    }
+    return {
+      name: name,
+      calories: parseFloat(document.getElementById("foodCaloriesInput").value) || 0,
+      protein: parseFloat(document.getElementById("foodProteinInput").value) || 0,
+      carbs: parseFloat(document.getElementById("foodCarbsInput").value) || 0,
+      fat: parseFloat(document.getElementById("foodFatInput").value) || 0
+    };
+  }
+
   document.getElementById("saveFoodBtn").addEventListener("click", function(){
     var name = document.getElementById("foodNameInput").value.trim();
     if(!name){ alert("Give the food a name first."); return; }
@@ -3402,17 +3443,16 @@
     config.foods = config.foods || [];
     config.foods.push(food);
     saveConfig(config);
-    ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput",
-     "foodUnitInput","foodUnitServingInput","foodUnitCaloriesInput","foodUnitProteinInput","foodUnitCarbsInput","foodUnitFatInput"].forEach(function(id){
-      document.getElementById(id).value = "";
-    });
-    document.getElementById("foodPerUnitToggle").checked = false;
-    document.getElementById("foodFixedFields").style.display = "block";
-    document.getElementById("foodPerUnitFields").style.display = "none";
-    document.getElementById("foodSearchResults").innerHTML = "";
-    document.getElementById("foodSearchStatus").textContent = "";
+    resetAddFoodForm();
     renderQuickAddGrid();
     renderMyFoodsList();
+  });
+
+  document.getElementById("logOnceBtn").addEventListener("click", function(){
+    var totals = readAddFoodTotals();
+    if(!totals) return;
+    logFoodEntry(totals);
+    resetAddFoodForm();
   });
 
   // ---------- init ----------
