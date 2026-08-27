@@ -313,6 +313,31 @@
   <!-- HISTORY SCREEN -->
   <section id="tab-history" class="screen">
     <div class="card">
+      <details id="historyCalendarDetails" open>
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;">Calendar</summary>
+        <div style="margin-top:12px;">
+          <div class="flex-between" style="margin-bottom:10px;">
+            <button class="small" id="calPrevMonthBtn" style="margin-top:0;">&lsaquo;</button>
+            <div id="calMonthLabel" style="font-weight:700; font-size:14px;"></div>
+            <button class="small" id="calNextMonthBtn" style="margin-top:0;">&rsaquo;</button>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:4px;">
+            <div class="day-nav-label" style="margin:0;">S</div><div class="day-nav-label" style="margin:0;">M</div>
+            <div class="day-nav-label" style="margin:0;">T</div><div class="day-nav-label" style="margin:0;">W</div>
+            <div class="day-nav-label" style="margin:0;">T</div><div class="day-nav-label" style="margin:0;">F</div>
+            <div class="day-nav-label" style="margin:0;">S</div>
+          </div>
+          <div id="calGrid" style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px;"></div>
+          <div style="display:flex; gap:14px; margin-top:10px; font-size:11px; color:var(--muted);">
+            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent); margin-right:4px;"></span>Workout</span>
+            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--blue); margin-right:4px;"></span>Protein goal</span>
+          </div>
+          <div id="calDetail" class="day-nav-label" style="margin-top:10px; text-align:left;">Tap a day to see details.</div>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
       <div class="flex-between">
         <h2 style="margin:0;">Past Workouts</h2>
         <button class="small danger" id="clearHistoryBtn">Clear All</button>
@@ -2566,7 +2591,128 @@
     return total;
   }
 
+  // ---------- History calendar (workout + nutrition, by day) ----------
+  var calViewDate = new Date(); // tracks which month is currently shown; day-of-month is ignored
+
+  function historyByDateMap(){
+    var map = {};
+    loadHistory().forEach(function(r){
+      var key = dateKeyLocal(new Date(r.date));
+      if(!map[key]) map[key] = [];
+      map[key].push(r);
+    });
+    return map;
+  }
+  function nutritionTotalsByDateMap(){
+    var map = {};
+    loadNutritionLog().forEach(function(e){
+      var key = dateKeyLocal(new Date(e.loggedAt));
+      if(!map[key]) map[key] = { calories:0, protein:0, carbs:0, fat:0 };
+      map[key].calories += e.calories || 0;
+      map[key].protein += e.protein || 0;
+      map[key].carbs += e.carbs || 0;
+      map[key].fat += e.fat || 0;
+    });
+    return map;
+  }
+
+  function renderHistoryCalendar(){
+    var year = calViewDate.getFullYear();
+    var month = calViewDate.getMonth(); // 0-11
+    document.getElementById("calMonthLabel").textContent =
+      calViewDate.toLocaleDateString(undefined, { month:"long", year:"numeric" });
+
+    var historyMap = historyByDateMap();
+    var nutritionMap = nutritionTotalsByDateMap();
+    var proteinGoal = computeProteinGoalG();
+    var todayKey = todayLocalDateStr();
+
+    var firstWeekday = new Date(year, month, 1).getDay(); // 0 = Sunday
+    var daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    var grid = document.getElementById("calGrid");
+    grid.innerHTML = "";
+    for(var b = 0; b < firstWeekday; b++){
+      grid.appendChild(document.createElement("div"));
+    }
+
+    var detailEl = document.getElementById("calDetail");
+
+    for(var day = 1; day <= daysInMonth; day++){
+      var key = year + "-" + String(month + 1).padStart(2,"0") + "-" + String(day).padStart(2,"0");
+      var recs = historyMap[key] || [];
+      var nut = nutritionMap[key];
+      var hitProtein = !!(nut && proteinGoal && nut.protein >= proteinGoal);
+      var isFuture = key > todayKey;
+
+      var cell = document.createElement("button");
+      cell.type = "button";
+      cell.textContent = String(day);
+      cell.style.cssText =
+        "position:relative; aspect-ratio:1; border:1px solid var(--border); background:var(--card2);" +
+        "border-radius:8px; font-size:12px; color:var(--text); padding:0;" +
+        (key === todayKey ? " border-color:var(--accent);" : "") +
+        (isFuture ? " opacity:0.4;" : "");
+
+      if(recs.length || nut){
+        var dots = document.createElement("div");
+        dots.style.cssText = "position:absolute; bottom:3px; left:50%; transform:translateX(-50%); display:flex; gap:2px;";
+        if(recs.length){
+          var d1 = document.createElement("span");
+          d1.style.cssText = "width:4px; height:4px; border-radius:50%; background:var(--accent); display:block;";
+          dots.appendChild(d1);
+        }
+        if(hitProtein){
+          var d2 = document.createElement("span");
+          d2.style.cssText = "width:4px; height:4px; border-radius:50%; background:var(--blue); display:block;";
+          dots.appendChild(d2);
+        }
+        cell.appendChild(dots);
+      }
+
+      cell.addEventListener("click", function(dayKey, dayNum, dayRecs, dayNut){
+        return function(){
+          var label = new Date(year, month, dayNum).toLocaleDateString(undefined, { weekday:"long", month:"short", day:"numeric" });
+          var lines = [];
+          if(dayRecs.length){
+            dayRecs.forEach(function(r){
+              var mm = Math.floor(r.elapsedSec/60), ss = String(r.elapsedSec%60).padStart(2,"0");
+              var roundsLabel;
+              if(r.dayType === "timed") roundsLabel = "1 continuous set";
+              else if(r.dayType === "interval") roundsLabel = r.roundsCompleted + " / " + (r.totalSets || r.roundsCompleted) + " sets";
+              else roundsLabel = r.roundsCompleted + " rounds";
+              var dayTag = r.dayLabel ? ("Day " + r.day + ": " + r.dayLabel + " — ") : "";
+              var calTag = r.calories ? (", ~" + r.calories + " kcal") : "";
+              lines.push(dayTag + roundsLabel + ", " + mm + ":" + ss + calTag);
+            });
+          } else {
+            lines.push("No workout logged.");
+          }
+          if(dayNut){
+            lines.push(Math.round(dayNut.calories) + " kcal · " + Math.round(dayNut.protein) + "g protein · " +
+              Math.round(dayNut.carbs) + "g carbs · " + Math.round(dayNut.fat) + "g fat");
+          } else {
+            lines.push("No food logged.");
+          }
+          detailEl.innerHTML = "<strong style=\"color:var(--text);\">" + escapeHtml(label) + "</strong><br>" + lines.map(escapeHtml).join("<br>");
+        };
+      }(key, day, recs, nut));
+
+      grid.appendChild(cell);
+    }
+  }
+
+  document.getElementById("calPrevMonthBtn").addEventListener("click", function(){
+    calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() - 1, 1);
+    renderHistoryCalendar();
+  });
+  document.getElementById("calNextMonthBtn").addEventListener("click", function(){
+    calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
+    renderHistoryCalendar();
+  });
+
   function renderHistory(){
+    renderHistoryCalendar();
     var history = loadHistory();
     var wrap = document.getElementById("historyList");
     if(history.length === 0){
@@ -2755,9 +2901,11 @@
   }
 
   // ---------- Log a Past Workout (manual/retroactive History entry) ----------
-  function todayLocalDateStr(){
-    var d = new Date();
+  function dateKeyLocal(d){
     return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  }
+  function todayLocalDateStr(){
+    return dateKeyLocal(new Date());
   }
 
   function populateManualDaySelect(){
