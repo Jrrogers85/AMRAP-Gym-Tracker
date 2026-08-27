@@ -338,12 +338,17 @@
     </div>
 
     <div class="card">
-      <div class="flex-between">
-        <h2 style="margin:0;">Past Workouts</h2>
-        <button class="small danger" id="clearHistoryBtn">Clear All</button>
-      </div>
+      <details id="historyListDetails">
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="historyListSummary">Past Workouts</summary>
+        <div style="margin-top:12px;">
+          <div class="flex-between" style="margin-bottom:10px;">
+            <span class="day-nav-label" style="margin:0;" id="historyListMonthNote"></span>
+            <button class="small danger" id="clearHistoryBtn">Clear All</button>
+          </div>
+          <div id="historyList"></div>
+        </div>
+      </details>
     </div>
-    <div id="historyList"></div>
 
     <div class="card" id="manualHistoryCard">
       <div class="flex-between" id="manualHistoryToggle" style="cursor:pointer;">
@@ -2704,19 +2709,35 @@
 
   document.getElementById("calPrevMonthBtn").addEventListener("click", function(){
     calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() - 1, 1);
-    renderHistoryCalendar();
+    renderHistory();
   });
   document.getElementById("calNextMonthBtn").addEventListener("click", function(){
     calViewDate = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
-    renderHistoryCalendar();
+    renderHistory();
   });
 
+  // Past Workouts list is scoped to whichever month the calendar above is currently showing
+  // (same calViewDate) rather than a separate month picker — flipping the calendar's month
+  // re-filters this list too, so it can't grow into an endless scroll over time.
   function renderHistory(){
     renderHistoryCalendar();
-    var history = loadHistory();
+    var allHistory = loadHistory();
     var wrap = document.getElementById("historyList");
-    if(history.length === 0){
+    var monthLabel = calViewDate.toLocaleDateString(undefined, { month:"long", year:"numeric" });
+    document.getElementById("historyListMonthNote").textContent = "Showing " + monthLabel;
+
+    if(allHistory.length === 0){
+      document.getElementById("historyListSummary").textContent = "Past Workouts (0)";
       wrap.innerHTML = '<div class="card idle-hint">No workouts saved yet.</div>';
+      return;
+    }
+    var filterKey = calViewDate.getFullYear() + "-" + String(calViewDate.getMonth() + 1).padStart(2,"0");
+    var history = allHistory.filter(function(r){
+      return dateKeyLocal(new Date(r.date)).slice(0, 7) === filterKey;
+    });
+    document.getElementById("historyListSummary").textContent = "Past Workouts (" + history.length + ")";
+    if(history.length === 0){
+      wrap.innerHTML = '<div class="card idle-hint">No workouts logged in ' + escapeHtml(monthLabel) + '.</div>';
       return;
     }
     wrap.innerHTML = "";
@@ -2762,9 +2783,11 @@
           delBtn.textContent = "🗑 Delete This Workout";
           delBtn.addEventListener("click", function(){
             if(!confirm("Delete this workout from history? This can't be undone.")) return;
-            var fresh = loadHistory();
-            var removed = fresh.splice(idx, 1)[0];
-            if(removed) recordDeletedId(historyRecordKey(removed));
+            // Removed by its own key rather than by position — "history" here is filtered to
+            // the currently-viewed month, so its index doesn't line up with the full array.
+            var keyToRemove = historyRecordKey(rec);
+            recordDeletedId(keyToRemove);
+            var fresh = loadHistory().filter(function(r){ return historyRecordKey(r) !== keyToRemove; });
             saveHistory(fresh);
             renderHistory();
           });
@@ -2775,7 +2798,7 @@
       });
     });
     document.getElementById("clearHistoryBtn").onclick = function(){
-      if(confirm("Delete all saved workout history?")){
+      if(confirm("Delete ALL saved workout history, across every month? This can't be undone.")){
         loadHistory().forEach(function(r){ recordDeletedId(historyRecordKey(r)); });
         saveHistory([]);
         renderHistory();
