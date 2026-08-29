@@ -701,6 +701,15 @@
   function buildStarterFoodsV5(){
     return STARTER_FOODS_V5.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
   }
+  // Pulled from the product's Nutrition Facts panel (1 bar). Calories confirmed via the
+  // page's competitive-comparison table (200 cal) since the facts panel itself omitted a
+  // standalone calories line.
+  var STARTER_FOODS_V6 = [
+    { name:"Nutrilite Organics All-in-One Bar – Berries & Seeds (1 bar)", calories:200, protein:12, carbs:22, fat:8 }
+  ];
+  function buildStarterFoodsV6(){
+    return STARTER_FOODS_V6.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
 
   // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
   function getWeightKg(){
@@ -761,13 +770,14 @@
       timerDuration: 60,
       soundThroughSilent: false,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
-      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
+      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
       starterFoodsSeededV2: true,
       starterFoodsSeededV3: true,
       scoopFixApplied: true,
       starterFoodsSeededV4: true,
       starterFoodsSeededV5: true,
+      starterFoodsSeededV6: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -867,6 +877,11 @@
       if(!cfg.starterFoodsSeededV5){
         cfg.foods = cfg.foods.concat(buildStarterFoodsV5());
         cfg.starterFoodsSeededV5 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.starterFoodsSeededV6){
+        cfg.foods = cfg.foods.concat(buildStarterFoodsV6());
+        cfg.starterFoodsSeededV6 = true;
         starterFoodsChanged = true;
       }
       if(starterFoodsChanged){
@@ -2291,8 +2306,23 @@
   // the "play beeps even if muted" toggle — it's the thing that steals iOS audio focus from
   // podcasts/music, so with the toggle off we skip it entirely and just use plain Web Audio
   // beeps (audible when unmuted, silent when muted, never touches other apps' audio).
-  document.addEventListener("touchstart", function(){ if(config.soundThroughSilent) unlockIOSAudioSession(); }, { passive: true });
-  document.addEventListener("click", function(){ if(config.soundThroughSilent) unlockIOSAudioSession(); });
+  // Every timer beep (the 30s "Get Ready" countdown, the rest timer) only ever fires the
+  // actual play() call later, from a setInterval hitting zero — never directly inside your
+  // tap on Start Workout / Complete Round. iOS only lets an AudioContext wake up (or get
+  // created) as a DIRECT result of a real tap, not "a tap started a countdown that later
+  // triggered this" — so if the very first attempt to wake it up happens from that delayed
+  // timer callback instead of the tap itself, iOS can refuse it for the rest of the session,
+  // and every beep after that fails silently even with the ringer on. Waking it up HERE,
+  // the instant of any tap anywhere in the app, fixes that — it's silent itself and doesn't
+  // touch other apps' audio, so unlike the toggle-gated trick below, it's safe to always run.
+  document.addEventListener("touchstart", function(){
+    getAudioCtx();
+    if(config.soundThroughSilent) unlockIOSAudioSession();
+  }, { passive: true });
+  document.addEventListener("click", function(){
+    getAudioCtx();
+    if(config.soundThroughSilent) unlockIOSAudioSession();
+  });
   // Defense-in-depth: iOS also tends to suspend the AudioContext whenever the tab is
   // backgrounded (screen lock, app switch) — resume it the moment it's visible again so a
   // beep that fires right as you return isn't silently dropped.
