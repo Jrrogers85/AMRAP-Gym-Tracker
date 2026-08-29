@@ -672,8 +672,8 @@
   // (protein 20g*4 + carbs 14g*4 + fat 7g*9 ≈ 199, rounded to 200) — worth double-checking
   // against the physical label if you want it exact.
   var STARTER_FOODS = [
-    { name:"XS Sports Protein Shake – Rich Chocolate (1 container)", calories:170, protein:25, carbs:6, fat:6 },
-    { name:"Nutrilite Organics All-in-One Shake – Chocolate (1 container)", calories:220, protein:20, carbs:21, fat:7 },
+    { name:"XS Sports Protein Shake – Rich Chocolate (1 container)", calories:170, protein:25, carbs:6, fat:6, waterOz:11 },
+    { name:"Nutrilite Organics All-in-One Shake – Chocolate (1 container)", calories:220, protein:20, carbs:21, fat:7, waterOz:11 },
     // Label values were per 2 scoops — halved here so each quick-add tap is 1 scoop, and you
     // can just tap it again for a 2nd or 3rd scoop instead of it being locked to a fixed amount.
     { name:"Nutrilite Organics Plant Protein Powder – Chocolate (1 scoop)", calories:72.5, protein:10.5, carbs:2, fat:2.5 },
@@ -742,6 +742,21 @@
   function applyWaterTagPatches(foods){
     return foods.map(function(f){
       var patch = WATER_TAG_PATCHES.filter(function(p){ return p.matchName === f.name; })[0];
+      return patch ? Object.assign({}, f, patch.updated) : f;
+    });
+  }
+  // Round two of the same water-tag patch, for the two ready-to-drink shakes (11 fl oz /
+  // 325 mL containers each, confirmed on their Amway product pages). Kept as its own
+  // array/flag rather than added to WATER_TAG_PATCHES above, since that patch's one-time
+  // flag (waterTagPatchApplied) has already run and flipped to true on existing devices —
+  // adding entries to it wouldn't retroactively apply to anyone who already migrated.
+  var WATER_TAG_PATCHES_V2 = [
+    { matchName:"XS Sports Protein Shake – Rich Chocolate (1 container)", updated:{ waterOz:11 } },
+    { matchName:"Nutrilite Organics All-in-One Shake – Chocolate (1 container)", updated:{ waterOz:11 } }
+  ];
+  function applyWaterTagPatchesV2(foods){
+    return foods.map(function(f){
+      var patch = WATER_TAG_PATCHES_V2.filter(function(p){ return p.matchName === f.name; })[0];
       return patch ? Object.assign({}, f, patch.updated) : f;
     });
   }
@@ -823,6 +838,7 @@
       starterFoodsSeededV5: true,
       starterFoodsSeededV6: true,
       waterTagPatchApplied: true,
+      waterTagPatchAppliedV2: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -932,6 +948,11 @@
       if(!cfg.waterTagPatchApplied){
         cfg.foods = applyWaterTagPatches(cfg.foods);
         cfg.waterTagPatchApplied = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.waterTagPatchAppliedV2){
+        cfg.foods = applyWaterTagPatchesV2(cfg.foods);
+        cfg.waterTagPatchAppliedV2 = true;
         starterFoodsChanged = true;
       }
       if(starterFoodsChanged){
