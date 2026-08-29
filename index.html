@@ -421,6 +421,28 @@
       <p class="muted" style="font-size:12px; margin:10px 0 0;" id="nutProteinGoalNote"></p>
     </div>
 
+    <div class="card" id="waterCard">
+      <h2>Water Intake</h2>
+      <div class="flex-between" style="font-size:14px;">
+        <span>Water</span>
+        <span id="waterLabel" class="muted">0 oz / 0 oz</span>
+      </div>
+      <div style="height:8px; background:var(--card2); border-radius:6px; overflow:hidden; margin:6px 0 12px;">
+        <div id="waterBar" style="height:100%; width:0%; background:var(--blue); transition:width 0.3s;"></div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px;">
+        <button class="secondary waterQuickBtn" data-oz="8" style="margin-top:0;">+8 oz</button>
+        <button class="secondary waterQuickBtn" data-oz="16" style="margin-top:0;">+16 oz</button>
+        <button class="secondary waterQuickBtn" data-oz="24" style="margin-top:0;">+24 oz</button>
+      </div>
+      <div class="row2" style="margin-top:8px;">
+        <input type="number" inputmode="decimal" id="waterCustomInput" placeholder="Custom oz" min="0">
+        <button class="secondary" id="waterCustomBtn" style="margin-top:0;">+ Log</button>
+      </div>
+      <p class="muted" style="font-size:12px; margin:10px 0 0;" id="waterGoalNote"></p>
+      <div id="waterLogList" style="margin-top:8px;"></div>
+    </div>
+
     <div class="card" id="quickAddFoodsCard">
       <h2>Quick Add</h2>
       <div id="quickAddFoodsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;"></div>
@@ -463,6 +485,15 @@
           <div class="exercise-row"><div style="flex:1; font-size:15px;">Protein (g, for that serving)</div><input type="number" inputmode="decimal" id="foodUnitProteinInput" min="0" style="width:90px;"></div>
           <div class="exercise-row"><div style="flex:1; font-size:15px;">Carbs (g, for that serving)</div><input type="number" inputmode="decimal" id="foodUnitCarbsInput" min="0" style="width:90px;"></div>
           <div class="exercise-row"><div style="flex:1; font-size:15px;">Fat (g, for that serving)</div><input type="number" inputmode="decimal" id="foodUnitFatInput" min="0" style="width:90px;"></div>
+        </div>
+
+        <label style="display:flex; align-items:center; gap:8px; margin:4px 0 8px; font-size:13px; color:var(--muted); cursor:pointer;">
+          <input type="checkbox" id="foodCountsAsWaterToggle" style="width:auto; margin:0;">
+          Also counts toward water intake (it's mostly water — a drink, milk alternative, etc.)
+        </label>
+        <div id="foodWaterOzField" style="display:none;">
+          <div class="exercise-row"><div style="flex:1; font-size:15px;">Water (oz per serving)</div><input type="number" inputmode="decimal" id="foodWaterOzInput" min="0" style="width:90px;"></div>
+          <p class="muted" style="font-size:12px; margin:4px 0 8px;">For "amount varies" foods, the amount you log each time is used as the water ounces automatically — no need to set this.</p>
         </div>
 
         <button class="primary" id="saveFoodBtn" style="margin-top:10px;">➕ Save to My Foods</button>
@@ -689,17 +720,30 @@
   // worth a quick check against your carton if you want it exact.
   var STARTER_FOODS_V4 = [
     { name:"Almond Breeze Unsweetened Original Almond Milk", isPerUnit:true, unit:"fl oz",
-      unitCalories:3.75, unitProtein:0.125, unitCarbs:0.125, unitFat:0.3125, defaultQty:8 }
+      unitCalories:3.75, unitProtein:0.125, unitCarbs:0.125, unitFat:0.3125, defaultQty:8, countsAsWater:true }
   ];
   function buildStarterFoodsV4(){
     return STARTER_FOODS_V4.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
   }
   // Pulled straight from the product's Nutrition Facts panel (1 can, 12 fl oz).
   var STARTER_FOODS_V5 = [
-    { name:"XS Energy Drink – Summit (1 can, 12 oz)", calories:15, protein:2, carbs:0, fat:0 }
+    { name:"XS Energy Drink – Summit (1 can, 12 oz)", calories:15, protein:2, carbs:0, fat:0, waterOz:12 }
   ];
   function buildStarterFoodsV5(){
     return STARTER_FOODS_V5.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
+  // Tags the two already-seeded mostly-water items as counting toward water intake, for
+  // configs saved before that field existed — same name-matching patch approach as the scoop
+  // fix above, since STARTER_FOODS_V4/V5 above only affect brand-new installs going forward.
+  var WATER_TAG_PATCHES = [
+    { matchName:"Almond Breeze Unsweetened Original Almond Milk", updated:{ countsAsWater:true } },
+    { matchName:"XS Energy Drink – Summit (1 can, 12 oz)", updated:{ waterOz:12 } }
+  ];
+  function applyWaterTagPatches(foods){
+    return foods.map(function(f){
+      var patch = WATER_TAG_PATCHES.filter(function(p){ return p.matchName === f.name; })[0];
+      return patch ? Object.assign({}, f, patch.updated) : f;
+    });
   }
   // Pulled from the product's Nutrition Facts panel (1 bar). Calories confirmed via the
   // page's competitive-comparison table (200 cal) since the facts panel itself omitted a
@@ -778,6 +822,7 @@
       starterFoodsSeededV4: true,
       starterFoodsSeededV5: true,
       starterFoodsSeededV6: true,
+      waterTagPatchApplied: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -882,6 +927,11 @@
       if(!cfg.starterFoodsSeededV6){
         cfg.foods = cfg.foods.concat(buildStarterFoodsV6());
         cfg.starterFoodsSeededV6 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.waterTagPatchApplied){
+        cfg.foods = applyWaterTagPatches(cfg.foods);
+        cfg.waterTagPatchApplied = true;
         starterFoodsChanged = true;
       }
       if(starterFoodsChanged){
@@ -3126,8 +3176,87 @@
     return { calorieGoal:calorieGoal, proteinGoal:proteinGoal, fatGoal:fatGoal, carbGoal:carbGoal };
   }
 
+  // ---------- Water intake (stored as isWater entries in the same nutrition log, so it
+  // rides along with the sync/tombstone machinery already built for food — calories/protein/
+  // carbs/fat are all 0 on these so they don't affect the macro totals above) ----------
+  function todaysWaterEntries(){
+    return todaysNutritionEntries().filter(function(e){ return e.isWater; });
+  }
+  function todaysWaterOz(){
+    return todaysWaterEntries().reduce(function(sum, e){ return sum + (e.ounces || 0); }, 0);
+  }
+  // Rough rule-of-thumb starting point (half your bodyweight in ounces) — thirst is a
+  // perfectly good guide day to day; this is just a number to aim for, not a strict target.
+  function computeWaterGoalOz(){
+    var lb = config.profile && config.profile.weightLb;
+    return lb ? Math.round(lb / 2) : null;
+  }
+  function logWaterEntry(oz){
+    var log = loadNutritionLog();
+    log.unshift({
+      id: makeHistoryId(),
+      foodId: null,
+      name: oz + " oz water",
+      calories: 0, protein: 0, carbs: 0, fat: 0,
+      isWater: true,
+      ounces: oz,
+      loggedAt: new Date().toISOString()
+    });
+    saveNutritionLog(log);
+    renderWaterCard();
+  }
+  function renderWaterCard(){
+    var totalOz = todaysWaterOz();
+    var goal = computeWaterGoalOz();
+    var label = document.getElementById("waterLabel");
+    var bar = document.getElementById("waterBar");
+    var note = document.getElementById("waterGoalNote");
+    if(goal){
+      label.textContent = Math.round(totalOz) + " oz / " + goal + " oz";
+      bar.style.width = Math.max(0, Math.min(100, (totalOz/goal)*100)) + "%";
+      note.textContent = "Rough goal (half your bodyweight in oz) — thirst is a good guide too.";
+    } else {
+      label.textContent = Math.round(totalOz) + " oz logged";
+      bar.style.width = "0%";
+      note.textContent = "Add your weight in the Profile tab to see a rough water goal.";
+    }
+    var wrap = document.getElementById("waterLogList");
+    wrap.innerHTML = "";
+    todaysWaterEntries().forEach(function(entry){
+      var row = document.createElement("div");
+      row.className = "exercise-row";
+      var time = new Date(entry.loggedAt).toLocaleTimeString(undefined, {hour:"numeric", minute:"2-digit"});
+      row.innerHTML = '<div style="flex:1; min-width:0; font-size:14px;">' + time + ' &middot; ' + Math.round(entry.ounces||0) + ' oz</div>';
+      var delBtn = document.createElement("button");
+      delBtn.className = "small danger";
+      delBtn.style.marginTop = "0";
+      delBtn.textContent = "🗑";
+      delBtn.addEventListener("click", function(){
+        var log = loadNutritionLog().filter(function(e){ return e.id !== entry.id; });
+        recordDeletedNutritionId(entry.id);
+        saveNutritionLog(log);
+        renderWaterCard();
+      });
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+  document.querySelectorAll(".waterQuickBtn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      logWaterEntry(parseFloat(btn.dataset.oz) || 0);
+    });
+  });
+  document.getElementById("waterCustomBtn").addEventListener("click", function(){
+    var input = document.getElementById("waterCustomInput");
+    var oz = parseFloat(input.value) || 0;
+    if(oz <= 0){ alert("Enter an amount first."); return; }
+    logWaterEntry(oz);
+    input.value = "";
+  });
+
   function renderNutrition(){
     renderNutritionTotals();
+    renderWaterCard();
     renderQuickAddGrid();
     renderMyFoodsList();
     renderLoggedTodayList();
@@ -3204,7 +3333,12 @@
     var grid = document.getElementById("quickAddFoodsGrid");
     var emptyMsg = document.getElementById("quickAddEmptyMsg");
     grid.innerHTML = "";
-    var foods = config.foods || [];
+    // Per-unit foods (full-width, with their own qty + Log button) show first, so they don't
+    // break up the 2-column grid of single-tap foods below them — a stable sort just moves
+    // them to the front without disturbing the order within either group.
+    var foods = (config.foods || []).slice().sort(function(a, b){
+      return (b.isPerUnit ? 1 : 0) - (a.isPerUnit ? 1 : 0);
+    });
     emptyMsg.style.display = foods.length ? "none" : "block";
     foods.forEach(function(food){
       if(food.isPerUnit){
@@ -3218,9 +3352,10 @@
         card.style.borderRadius = "10px";
         card.style.padding = "10px";
         var defaultQty = food.defaultQty || 1;
+        var waterTag1 = food.countsAsWater ? " &middot; 💧 counts as water" : "";
         card.innerHTML =
           '<div style="font-size:13px; font-weight:600;">' + escapeHtml(food.name) + '</div>' +
-          '<div class="muted" style="font-size:11px; margin-top:2px;">' + (food.unitCalories||0).toFixed(2) + ' kcal per ' + escapeHtml(food.unit||"unit") + '</div>' +
+          '<div class="muted" style="font-size:11px; margin-top:2px;">' + (food.unitCalories||0).toFixed(2) + ' kcal per ' + escapeHtml(food.unit||"unit") + waterTag1 + '</div>' +
           '<div class="row2" style="margin-top:8px; align-items:center;">' +
             '<input type="number" inputmode="decimal" min="0" step="0.5" value="' + defaultQty + '" class="qtyInput" style="text-align:center;">' +
             '<button class="primary logQtyBtn" style="margin-top:0;">+ Log</button>' +
@@ -3235,6 +3370,10 @@
             name: food.name + " (" + qty + " " + (food.unit || "unit") + ")",
             calories: macros.calories, protein: macros.protein, carbs: macros.carbs, fat: macros.fat
           });
+          // "Amount varies" foods are logged in real fluid ounces already, so if this one's
+          // tagged as counting toward water, the qty just logged IS the water ounces — one
+          // tap updates both totals, no separate water log needed.
+          if(food.countsAsWater) logWaterEntry(qty);
         });
         grid.appendChild(card);
       } else {
@@ -3242,10 +3381,14 @@
         btn.className = "secondary";
         btn.style.marginTop = "0";
         btn.style.textAlign = "left";
+        var waterTag2 = food.waterOz ? (" &middot; 💧 " + food.waterOz + "oz water") : "";
         btn.innerHTML =
           '<div style="font-size:13px; font-weight:600;">+ ' + escapeHtml(food.name) + '</div>' +
-          '<div class="muted" style="font-size:11px; margin-top:2px;">' + Math.round(food.protein||0) + 'g protein &middot; ' + Math.round(food.calories||0) + ' kcal</div>';
-        btn.addEventListener("click", function(){ logFoodEntry(food); });
+          '<div class="muted" style="font-size:11px; margin-top:2px;">' + Math.round(food.protein||0) + 'g protein &middot; ' + Math.round(food.calories||0) + ' kcal' + waterTag2 + '</div>';
+        btn.addEventListener("click", function(){
+          logFoodEntry(food);
+          if(food.waterOz) logWaterEntry(food.waterOz);
+        });
         grid.appendChild(btn);
       }
     });
@@ -3289,7 +3432,7 @@
     var wrap = document.getElementById("loggedTodayList");
     var emptyMsg = document.getElementById("loggedTodayEmptyMsg");
     wrap.innerHTML = "";
-    var entries = todaysNutritionEntries();
+    var entries = todaysNutritionEntries().filter(function(e){ return !e.isWater; });
     emptyMsg.style.display = entries.length ? "none" : "block";
     entries.forEach(function(entry){
       var row = document.createElement("div");
@@ -3322,10 +3465,17 @@
     chevron.textContent = open ? "▸ Show" : "▾ Hide";
   });
 
+  function updateFoodWaterOzFieldVisibility(){
+    var isPerUnit = document.getElementById("foodPerUnitToggle").checked;
+    var countsAsWater = document.getElementById("foodCountsAsWaterToggle").checked;
+    document.getElementById("foodWaterOzField").style.display = (countsAsWater && !isPerUnit) ? "block" : "none";
+  }
   document.getElementById("foodPerUnitToggle").addEventListener("change", function(e){
     document.getElementById("foodFixedFields").style.display = e.target.checked ? "none" : "block";
     document.getElementById("foodPerUnitFields").style.display = e.target.checked ? "block" : "none";
+    updateFoodWaterOzFieldVisibility();
   });
+  document.getElementById("foodCountsAsWaterToggle").addEventListener("change", updateFoodWaterOzFieldVisibility);
 
   // Free, open, crowd-sourced food database — good coverage of branded/packaged foods
   // since it's built from real product barcodes. Quality varies by item (crowd-sourced),
@@ -3399,32 +3549,39 @@
 
   function resetAddFoodForm(){
     ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput",
-     "foodUnitInput","foodUnitServingInput","foodUnitCaloriesInput","foodUnitProteinInput","foodUnitCarbsInput","foodUnitFatInput"].forEach(function(id){
+     "foodUnitInput","foodUnitServingInput","foodUnitCaloriesInput","foodUnitProteinInput","foodUnitCarbsInput","foodUnitFatInput",
+     "foodWaterOzInput"].forEach(function(id){
       document.getElementById(id).value = "";
     });
     document.getElementById("foodPerUnitToggle").checked = false;
+    document.getElementById("foodCountsAsWaterToggle").checked = false;
     document.getElementById("foodFixedFields").style.display = "block";
     document.getElementById("foodPerUnitFields").style.display = "none";
+    document.getElementById("foodWaterOzField").style.display = "none";
     document.getElementById("foodSearchResults").innerHTML = "";
     document.getElementById("foodSearchStatus").textContent = "";
   }
 
-  // Reads the Add Food form as a one-off {name, calories, protein, carbs, fat} for logging
-  // directly — used by "Log just this once", which skips saving anything to My Foods. For
-  // the per-unit fields, the entered "for that serving" values ARE the total for this single
-  // instance, so no per-unit division is needed here (that math only matters for a food you're
-  // saving to reuse with a different quantity next time).
+  // Reads the Add Food form as a one-off {name, calories, protein, carbs, fat, waterOz} for
+  // logging directly — used by "Log just this once", which skips saving anything to My Foods.
+  // For the per-unit fields, the entered "for that serving" values ARE the total for this
+  // single instance, so no per-unit division is needed here (that math only matters for a food
+  // you're saving to reuse with a different quantity next time). Same idea for water: a
+  // one-off per-unit log has no separate qty to reuse, so we just credit the label's own
+  // serving size in units as the water ounces when "counts as water" is checked.
   function readAddFoodTotals(){
     var name = document.getElementById("foodNameInput").value.trim();
     if(!name){ alert("Give the food a name first."); return null; }
     var isPerUnit = document.getElementById("foodPerUnitToggle").checked;
+    var countsAsWater = document.getElementById("foodCountsAsWaterToggle").checked;
     if(isPerUnit){
       return {
         name: name,
         calories: parseFloat(document.getElementById("foodUnitCaloriesInput").value) || 0,
         protein: parseFloat(document.getElementById("foodUnitProteinInput").value) || 0,
         carbs: parseFloat(document.getElementById("foodUnitCarbsInput").value) || 0,
-        fat: parseFloat(document.getElementById("foodUnitFatInput").value) || 0
+        fat: parseFloat(document.getElementById("foodUnitFatInput").value) || 0,
+        waterOz: countsAsWater ? (parseFloat(document.getElementById("foodUnitServingInput").value) || 0) : 0
       };
     }
     return {
@@ -3432,7 +3589,8 @@
       calories: parseFloat(document.getElementById("foodCaloriesInput").value) || 0,
       protein: parseFloat(document.getElementById("foodProteinInput").value) || 0,
       carbs: parseFloat(document.getElementById("foodCarbsInput").value) || 0,
-      fat: parseFloat(document.getElementById("foodFatInput").value) || 0
+      fat: parseFloat(document.getElementById("foodFatInput").value) || 0,
+      waterOz: countsAsWater ? (parseFloat(document.getElementById("foodWaterOzInput").value) || 0) : 0
     };
   }
 
@@ -3440,6 +3598,7 @@
     var name = document.getElementById("foodNameInput").value.trim();
     if(!name){ alert("Give the food a name first."); return; }
     var isPerUnit = document.getElementById("foodPerUnitToggle").checked;
+    var countsAsWater = document.getElementById("foodCountsAsWaterToggle").checked;
     var food;
     if(isPerUnit){
       var unit = document.getElementById("foodUnitInput").value.trim() || "unit";
@@ -3458,7 +3617,8 @@
         unitProtein: labelProtein / servingSize,
         unitCarbs: labelCarbs / servingSize,
         unitFat: labelFat / servingSize,
-        defaultQty: servingSize
+        defaultQty: servingSize,
+        countsAsWater: countsAsWater
       };
     } else {
       food = {
@@ -3469,6 +3629,7 @@
         carbs: parseFloat(document.getElementById("foodCarbsInput").value) || 0,
         fat: parseFloat(document.getElementById("foodFatInput").value) || 0
       };
+      if(countsAsWater) food.waterOz = parseFloat(document.getElementById("foodWaterOzInput").value) || 0;
     }
     config.foods = config.foods || [];
     config.foods.push(food);
@@ -3482,6 +3643,7 @@
     var totals = readAddFoodTotals();
     if(!totals) return;
     logFoodEntry(totals);
+    if(totals.waterOz) logWaterEntry(totals.waterOz);
     resetAddFoodForm();
   });
 
