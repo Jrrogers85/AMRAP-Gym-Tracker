@@ -60,8 +60,8 @@
   .exercise-row input:disabled, .exercise-row input[type=number]:disabled{opacity:0.5;}
   button.secondary.locked{background:var(--accent2); color:#2a1c00; border-color:var(--accent2);}
   button.secondary:disabled{opacity:0.45;}
-  .target-fields{display:flex; align-items:center; gap:8px; white-space:nowrap; color:var(--muted); font-size:13px;}
-  .target-fields input{width:52px; text-align:center;}
+  .target-fields{display:flex; align-items:center; gap:6px; white-space:nowrap; color:var(--muted); font-size:13px; flex-shrink:0;}
+  .target-fields input{width:38px; text-align:center; padding:10px 2px;}
   input[type=text], input[type=number]{
     background:var(--card2); border:1px solid var(--border); color:var(--text);
     border-radius:8px; padding:10px 10px; font-size:15px; width:100%;
@@ -2369,15 +2369,29 @@
     // Day 2 (continuous cardio) only: one beep at every 5-minute mark up to (but not
     // including) the time cap you picked for this session — the cap itself is covered by
     // the distinct "finished" ding above, so it's deliberately excluded here.
+    //
+    // This ticks off real elapsed time (Date.now()-based), not a tick counter, on purpose —
+    // iOS suspends this page's JS almost entirely while it's backgrounded (e.g. another app
+    // is fullscreen), so the exact second a 5-minute mark passes can be missed completely.
+    // Rather than requiring a tick to land exactly on minute 5/10/15 (which silently loses
+    // the beep forever if the page was asleep at that instant), this checks for ANY mark
+    // that's already due and hasn't played yet, and catches it up the next time the page
+    // gets a chance to run — which is usually the moment you glance back at your phone.
     if(session.dayType === "timed"){
       var minuteMark = Math.floor(totalSec/60);
-      if(minuteMark > 0 && minuteMark % 5 === 0 && minuteMark < session.capMin){
-        session.fiveMinMarksPlayed = session.fiveMinMarksPlayed || [];
-        if(session.fiveMinMarksPlayed.indexOf(minuteMark) === -1){
-          session.fiveMinMarksPlayed.push(minuteMark);
-          persistSession();
-          playTimerSound();
+      session.fiveMinMarksPlayed = session.fiveMinMarksPlayed || [];
+      var dueMark = null;
+      for(var m = 5; m < session.capMin; m += 5){
+        if(minuteMark >= m && session.fiveMinMarksPlayed.indexOf(m) === -1) dueMark = m;
+      }
+      if(dueMark !== null){
+        // If more than one mark was missed while backgrounded, mark them all as played but
+        // only beep once — catching up shouldn't fire off a burst of back-to-back beeps.
+        for(var m2 = 5; m2 <= dueMark; m2 += 5){
+          if(session.fiveMinMarksPlayed.indexOf(m2) === -1) session.fiveMinMarksPlayed.push(m2);
         }
+        persistSession();
+        playTimerSound();
       }
     }
     if(session.dayType === "interval") updateIntervalDisplay();
@@ -2505,6 +2519,10 @@
     if(!document.hidden && typeof sharedAudioCtx !== "undefined" && sharedAudioCtx && sharedAudioCtx.state === "suspended"){
       sharedAudioCtx.resume().catch(function(){});
     }
+    // Force an immediate catch-up check the moment the app is back in front (e.g. you
+    // switch back from a fullscreen video) instead of waiting up to another second for the
+    // next tick — same reasoning as the 5-minute-mark catch-up logic in updateClockDisplay.
+    if(!document.hidden && session) updateClockDisplay();
   });
 
   // ---------- Quick Timer (manual, up to 1 minute, selectable alert sound) ----------
