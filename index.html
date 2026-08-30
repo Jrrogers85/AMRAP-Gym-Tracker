@@ -61,7 +61,10 @@
   button.secondary.locked{background:var(--accent2); color:#2a1c00; border-color:var(--accent2);}
   button.secondary:disabled{opacity:0.45;}
   .target-fields{display:flex; align-items:center; gap:5px; white-space:nowrap; color:var(--muted); font-size:13px; flex-shrink:0;}
-  .target-fields input{width:30px; text-align:center; padding:10px 1px;}
+  /* min-width:0 overrides the browser's default flex-item minimum, which is based on the
+     input's content size — without it, typing a long value (or a stray extra digit) can
+     force the box to silently grow past the width below no matter what width says. */
+  .target-fields input{width:26px; min-width:0; text-align:center; padding:10px 0; font-size:14px;}
   input[type=text], input[type=number]{
     background:var(--card2); border:1px solid var(--border); color:var(--text);
     border-radius:8px; padding:10px 10px; font-size:15px; width:100%;
