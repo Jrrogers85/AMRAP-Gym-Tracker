@@ -1878,6 +1878,7 @@
       pausedAt: null,
       totalPausedMs: 0,
       capAlertPlayed: false,
+      fiveMinMarksPlayed: [], // Day 2 (continuous/"timed") only — which 5-min marks have already beeped
       rounds: [],           // completed rounds
       roundSplitsMs: [],    // how long each completed round took (pause-aware), supersets days only
       current: newRoundEntries(null, dayDataSnapshot, meta.type)
@@ -2353,16 +2354,31 @@
     if(totalSec >= capSec){
       warn.textContent = "⏰ Time cap reached — wrap up!";
       // Ding once when the cap is hit, but never pause/stop anything — you might be
-      // mid-round and want to finish it out.
+      // mid-round and want to finish it out. Uses a sound distinct from the default timer
+      // sound so it doesn't blend in with the Day 2 5-minute markers below.
       if(!session.capAlertPlayed){
         session.capAlertPlayed = true;
         persistSession();
-        playTimerSound();
+        playFinishedSound();
       }
     } else if(totalSec >= capSec - 60){
       warn.textContent = "Final minute!";
     } else {
       warn.textContent = "";
+    }
+    // Day 2 (continuous cardio) only: one beep at every 5-minute mark up to (but not
+    // including) the time cap you picked for this session — the cap itself is covered by
+    // the distinct "finished" ding above, so it's deliberately excluded here.
+    if(session.dayType === "timed"){
+      var minuteMark = Math.floor(totalSec/60);
+      if(minuteMark > 0 && minuteMark % 5 === 0 && minuteMark < session.capMin){
+        session.fiveMinMarksPlayed = session.fiveMinMarksPlayed || [];
+        if(session.fiveMinMarksPlayed.indexOf(minuteMark) === -1){
+          session.fiveMinMarksPlayed.push(minuteMark);
+          persistSession();
+          playTimerSound();
+        }
+      }
     }
     if(session.dayType === "interval") updateIntervalDisplay();
   }
@@ -2540,6 +2556,19 @@
     var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
     TIMER_SOUNDS[key].play();
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
+  }
+
+  // Plays a sound picked to be different from whatever the user's default timer sound is,
+  // so "time's up" never sounds identical to a mid-workout checkpoint beep (e.g. the Day 2
+  // 5-minute markers below). Bell Ring is the pick — its long resonant tone reads clearly
+  // as "done" next to the shorter beeps/chimes/buzzes — unless that's already the default,
+  // in which case Chime steps in instead.
+  function playFinishedSound(){
+    if(config.soundThroughSilent) replaySilentUnlock();
+    var defaultKey = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
+    var finishedKey = defaultKey === "bell" ? "chime" : "bell";
+    TIMER_SOUNDS[finishedKey].play();
+    if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
   }
 
   function populateTimerSoundSelect(){
