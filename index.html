@@ -283,6 +283,7 @@
       <button class="secondary" id="nextDayBtn" style="margin-top:0;">Next Day ▶</button>
     </div>
     <div class="day-nav-label" id="dayNavLabel" style="margin-bottom:12px;">Day 1 of 7</div>
+    <p class="muted" id="dayStreakNote" style="margin:-6px 0 12px; font-size:13px; display:none;"></p>
 
     <div class="card" id="quickFillCard">
       <h2>Quick Fill</h2>
@@ -663,6 +664,58 @@
   };
 
   var INTENSITY_MULT = { easy:0.85, moderate:1.0, hard:1.15 };
+
+  // ---------- Per-day "unchanged streak" tracker ----------
+  // Purely informational (no thresholds/warnings, by design) — just answers "how many
+  // workouts in a row have I done this exact lineup for this day?" so you can decide for
+  // yourself when it's time to switch things up. Reps/weight changes are normal progression
+  // and don't count as "changing" the lineup — only swapping which exercise is used does.
+  function dayExerciseNames(day){
+    var meta = DAY_META[day];
+    var dayData = config.days[day];
+    if(!dayData || !meta || meta.type === "rest") return [];
+    if(meta.type === "supersets"){
+      var names = [];
+      (dayData.supersets || []).forEach(function(ss){
+        names.push(ss.a.name, ss.b.name);
+      });
+      return names;
+    }
+    return dayData.exercise ? [dayData.exercise.name] : [];
+  }
+  function dayExerciseSignature(day){ return JSON.stringify(dayExerciseNames(day)); }
+
+  // Lazily seeds the tracking fields the first time a day is touched after this feature
+  // shipped. There's no record of when a day's exercises were last actually changed before
+  // now, so existing days start counting fresh from today rather than guessing a number.
+  // Returns true if it just initialized (so the caller knows to persist).
+  function ensureDayStreakFields(day){
+    var dayData = config.days[day];
+    var meta = DAY_META[day];
+    if(!dayData || !meta || meta.type === "rest") return false;
+    if(typeof dayData.exerciseNamesSnapshot === "undefined"){
+      dayData.exerciseNamesSnapshot = dayExerciseSignature(day);
+      dayData.exerciseStreak = 0;
+      return true;
+    }
+    return false;
+  }
+
+  function renderDayStreakNote(day){
+    var note = document.getElementById("dayStreakNote");
+    if(!note) return;
+    var meta = DAY_META[day];
+    if(!meta || meta.type === "rest"){
+      note.style.display = "none";
+      return;
+    }
+    if(ensureDayStreakFields(day)) saveConfig(config);
+    var streak = config.days[day].exerciseStreak || 0;
+    note.style.display = "";
+    note.textContent = streak === 0
+      ? "🔁 New lineup — no completed workouts with these exercises yet."
+      : "🔁 " + streak + " workout" + (streak === 1 ? "" : "s") + " in a row with these exercises.";
+  }
 
   function mkEx(name){ return { name:name, reps:10, weight:"" }; }
 
@@ -1373,11 +1426,13 @@
       quickFillCard.style.display = "none";
       colHead.style.display = "none";
       list.innerHTML = '<div class="card idle-hint">Rest day &mdash; no exercises scheduled. Enjoy the recovery! 🛌</div>';
+      renderDayStreakNote(day);
       return;
     }
 
     quickFillCard.style.display = "";
     colHead.style.display = "";
+    renderDayStreakNote(day);
 
     var locked = !!dayData.locked;
     var dis = locked ? "disabled" : "";
@@ -1449,6 +1504,17 @@
         } else {
           dayData.exercise[field] = val;
         }
+        if(field === "name"){
+          // Swapping which exercise is used resets the "in a row" streak — reps/weight
+          // edits (the other fields this same listener handles) are normal progression,
+          // not a lineup change, so they don't touch it.
+          var newSig = dayExerciseSignature(day);
+          if(newSig !== dayData.exerciseNamesSnapshot){
+            dayData.exerciseNamesSnapshot = newSig;
+            dayData.exerciseStreak = 0;
+          }
+          renderDayStreakNote(day);
+        }
         saveConfig(config);
       });
     });
@@ -1499,6 +1565,10 @@
     } else if(meta.fillMode === "single"){
       dayData.exercise.name = shuffle(meta.pool)[0];
     }
+    // Auto-Fill changes names directly rather than through the input listener above, so
+    // reset the streak here too.
+    dayData.exerciseNamesSnapshot = dayExerciseSignature(day);
+    dayData.exerciseStreak = 0;
     saveConfig(config);
     renderSetup();
   });
@@ -2228,6 +2298,24 @@
     var history = loadHistory();
     history.unshift(record);
     saveHistory(history);
+    // A completed workout is the signal that this day's current lineup got used again —
+    // bump its "in a row" streak (or start a fresh one if the exercises changed since the
+    // last time this was checked, e.g. via Auto-Fill without ever opening Setup).
+    (function(){
+      var day = session.day, meta = DAY_META[day];
+      var dayData = config.days[day];
+      if(meta && meta.type !== "rest" && dayData){
+        ensureDayStreakFields(day);
+        var sig = dayExerciseSignature(day);
+        if(dayData.exerciseNamesSnapshot === sig){
+          dayData.exerciseStreak = (dayData.exerciseStreak || 0) + 1;
+        } else {
+          dayData.exerciseNamesSnapshot = sig;
+          dayData.exerciseStreak = 1;
+        }
+        saveConfig(config);
+      }
+    })();
     clearInterval(tickInterval);
     session = null;
     persistSession();
