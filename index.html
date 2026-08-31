@@ -2087,11 +2087,24 @@
     var wrap = document.getElementById("intervalTimeline");
     if(!session || !session.interval){ wrap.innerHTML = ""; return; }
     var totalSets = session.interval.totalSets;
+    // Circuit days (Day 4) swap in a different exercise each set, so the timeline labels
+    // name it right on the round -- same cycling math updateIntervalDisplay() uses to advance
+    // session.current[0].name, computed ahead of time here so the whole lineup is visible up
+    // front instead of only revealing each move as you reach it.
+    var circuitNames = null;
+    if(session.dayType === "circuit"){
+      var exList = (session.dayData && session.dayData.exercises) || [];
+      if(exList.length){
+        circuitNames = [];
+        for(var s = 1; s <= totalSets; s++) circuitNames.push(exList[(s - 1) % exList.length].name);
+      }
+    }
     var html = "";
     for(var i = 1; i <= totalSets; i++){
+      var label = "Round " + i + (circuitNames ? " — " + escapeHtml(circuitNames[i-1]) : "");
       html +=
         '<div class="interval-round" id="intervalRound' + i + '">' +
-          '<div class="interval-round-label">Round ' + i + '</div>' +
+          '<div class="interval-round-label">' + label + '</div>' +
           '<div class="interval-bar-row"><span class="interval-bar-tag">Rest</span>' +
             '<div class="interval-bar-track"><div class="interval-bar-fill rest" id="intervalBarRest' + i + '"></div></div></div>' +
           '<div class="interval-bar-row"><span class="interval-bar-tag">Work</span>' +
