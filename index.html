@@ -656,6 +656,14 @@
     "Assault Bike Sprints", "Battle Ropes", "Box Jumps", "Burpees",
     "Ski Erg Sprints", "Sled Push", "Rowing Sprints", "Jump Rope (fast intervals)"
   ];
+  var AB_CIRCUIT_EXERCISES = [
+    "In & Outs", "Bicycle Crunches", "Fifer Scissors", "Oblique V-Ups",
+    "Seated In & Outs", "Roll Up Roll Down", "Pulse Ups", "Plank",
+    "Side Plank", "Crunches", "Reverse Crunches", "Russian Twists",
+    "Leg Raises", "Flutter Kicks", "Hollow Body Hold", "Toe Touches",
+    "Dead Bug", "Heel Touches", "V-Ups", "Windshield Wipers",
+    "Sit-ups", "Mountain Climbers"
+  ];
 
   // ---------- Day metadata (structure/theme; not user data) ----------
   // "met" = a rough baseline MET (metabolic equivalent) value used only for the optional
@@ -664,9 +672,9 @@
     1: { label:"Chest & Back",     type:"supersets", fillMode:"pair",   poolA:PUSH_EXERCISES,    poolB:PULL_EXERCISES,     fillLabel:"Push/Pull",       met:8 },
     2: { label:"Aerobic Cardio",   type:"timed",      fillMode:"single", pool:AEROBIC_EXERCISES,                          fillLabel:"Cardio Exercise", met:7 },
     3: { label:"Legs & Shoulders", type:"supersets", fillMode:"pair",   poolA:LEGS_EXERCISES,    poolB:SHOULDER_EXERCISES, fillLabel:"Legs/Shoulders",  met:8 },
-    4: { label:"Rest",             type:"rest" },
+    4: { label:"Ab Circuit",       type:"circuit",   fillMode:"multi",  pool:AB_CIRCUIT_EXERCISES,                       fillLabel:"Ab Circuit",      met:6, workSec:60, restSec:15, startPhase:"work", capMin:15 },
     5: { label:"Arms",             type:"supersets", fillMode:"pair",   poolA:BICEP_EXERCISES,   poolB:TRICEP_EXERCISES,   fillLabel:"Arms",            met:8 },
-    6: { label:"Anaerobic Cardio", type:"interval",   fillMode:"single", pool:ANAEROBIC_EXERCISES,                        fillLabel:"Cardio Exercise", met:10, sets:10, workSec:60, restSec:60, startPhase:"rest" },
+    6: { label:"Anaerobic Cardio", type:"interval",   fillMode:"single", pool:ANAEROBIC_EXERCISES,                        fillLabel:"Cardio Exercise", met:10, sets:10, workSec:60, restSec:60, startPhase:"rest", capMin:20 },
     7: { label:"Rest",             type:"rest" }
   };
 
@@ -687,6 +695,9 @@
         names.push(ss.a.name, ss.b.name);
       });
       return names;
+    }
+    if(meta.type === "circuit"){
+      return (dayData.exercises || []).map(function(ex){ return ex.name; });
     }
     return dayData.exercise ? [dayData.exercise.name] : [];
   }
@@ -725,6 +736,16 @@
   }
 
   function mkEx(name){ return { name:name, reps:10, weight:"" }; }
+
+  // Default lineup for Day 4's ab circuit — the first 12 moves from the pool, in a fixed
+  // order (same "just pick a reasonable starting set" approach used for every other day's
+  // hardcoded default exercises). 12 moves x 75s/move (60s work + 15s rest) = 900s = 15
+  // minutes, matching the plan (1 min work / 15s rest ≈ 12 moves in 15 minutes). Auto-Fill
+  // reshuffles from here whenever you like; picking a longer time cap on the Workout tab
+  // will run more sets by cycling back through this same list.
+  function buildDefaultAbCircuitExercises(){
+    return AB_CIRCUIT_EXERCISES.slice(0, 12).map(function(name){ return mkEx(name); });
+  }
 
   // Starter foods seeded once (see starterFoodsSeeded flag below) — pulled from the actual
   // product nutrition labels on amway.com. The Meal Powder's calorie count wasn't printed as
@@ -899,6 +920,8 @@
       starterFoodsSeededV6: true,
       waterTagPatchApplied: true,
       waterTagPatchAppliedV2: true,
+      day4CircuitSeeded: true,
+      day4CircuitSeededV2: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -914,7 +937,7 @@
               { a:mkEx("Romanian Deadlift"),b:mkEx("Arnold Press") },
               { a:mkEx("Walking Lunge"),    b:mkEx("Front Raise") }
             ]},
-        4: {},
+        4: { locked:false, exercises: buildDefaultAbCircuitExercises(), workSec:60, restSec:15 },
         5: { locked:false, supersets: [
               { a:mkEx("Bicep Curl"),          b:mkEx("Tricep Dip") },
               { a:mkEx("Hammer Curl"),         b:mkEx("Overhead Tricep Extension") },
@@ -1013,6 +1036,37 @@
       if(!cfg.waterTagPatchAppliedV2){
         cfg.foods = applyWaterTagPatchesV2(cfg.foods);
         cfg.waterTagPatchAppliedV2 = true;
+        starterFoodsChanged = true;
+      }
+      // Day 4 used to be a plain rest day — one-time seed of the ab circuit's default
+      // exercises + timing for anyone who already has a config saved from before this
+      // existed. Only touches it if it doesn't already look like a circuit day, so it won't
+      // clobber anything (this should only ever fire once per install anyway).
+      if(!cfg.day4CircuitSeeded){
+        if(cfg.days && cfg.days[4] && !Array.isArray(cfg.days[4].exercises)){
+          cfg.days[4] = Object.assign({ locked:false }, cfg.days[4], {
+            exercises: buildDefaultAbCircuitExercises(),
+            workSec: cfg.days[4].workSec || 60,
+            restSec: cfg.days[4].restSec || 15
+          });
+        }
+        cfg.day4CircuitSeeded = true;
+        starterFoodsChanged = true;
+      }
+      // The original Day 4 default briefly shipped as 16 moves (paired with a 20-min cap)
+      // before landing on the actual agreed-upon plan: 12 moves, 60s work / 15s rest ≈ a
+      // 15-minute session. Trims down to 12 only if the lineup still looks exactly like that
+      // original untouched 16-move default, so a lineup you've since customized on the Setup
+      // tab (via Auto-Fill or manual edits) is left alone.
+      if(!cfg.day4CircuitSeededV2){
+        if(cfg.days && cfg.days[4] && Array.isArray(cfg.days[4].exercises) && cfg.days[4].exercises.length === 16){
+          var orig16Names = JSON.stringify(AB_CIRCUIT_EXERCISES.slice(0, 16));
+          var current16Names = JSON.stringify(cfg.days[4].exercises.map(function(ex){ return ex.name; }));
+          if(current16Names === orig16Names){
+            cfg.days[4].exercises = cfg.days[4].exercises.slice(0, 12);
+          }
+        }
+        cfg.day4CircuitSeededV2 = true;
         starterFoodsChanged = true;
       }
       if(starterFoodsChanged){
@@ -1412,7 +1466,10 @@
 
     var resetWeightsBtn = document.getElementById("resetWeightsBtn");
     var resetRepsBtn = document.getElementById("resetRepsBtn");
-    if(meta.type === "rest"){
+    if(meta.type === "rest" || meta.type === "circuit"){
+      // Circuit days don't track reps/weight at all (each set is a timed exercise, not a
+      // rep target), so there's nothing for these buttons to reset — same treatment as rest
+      // days rather than leaving them clickable with nothing to do.
       resetWeightsBtn.textContent = "🧹 Clear Starting Weights (Day " + day + ")";
       resetWeightsBtn.disabled = true;
       resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (Day " + day + ")";
@@ -1459,37 +1516,48 @@
       card.className = "card";
       card.innerHTML = exerciseFieldHtml(0, "solo", dayData.exercise, dis);
       list.appendChild(card);
+    } else if(meta.type === "circuit"){
+      // A flat list of moves (not paired like supersets) — Auto-Fill reshuffles which
+      // exercises fill these slots; the timing card below controls how long each one runs.
+      (dayData.exercises || []).forEach(function(ex, idx){
+        var moveCard = document.createElement("div");
+        moveCard.className = "card";
+        moveCard.innerHTML =
+          '<p class="superset-title">Move ' + (idx+1) + '</p>' +
+          exerciseFieldHtml(idx, "solo", ex, dis);
+        list.appendChild(moveCard);
+      });
+    }
 
-      if(meta.type === "interval"){
-        var timing = getIntervalTiming(day);
-        var timingCard = document.createElement("div");
-        timingCard.className = "card";
-        timingCard.innerHTML =
-          '<p class="superset-title" style="margin-top:0;">Interval Timing</p>' +
-          '<div class="exercise-row">' +
-            '<div style="flex:1; font-size:15px;">Rest (seconds)</div>' +
-            '<input type="number" id="intervalRestSecInput" value="'+timing.restSec+'" min="5" max="600" style="width:90px;">' +
-          '</div>' +
-          '<div class="exercise-row">' +
-            '<div style="flex:1; font-size:15px;">Work (seconds)</div>' +
-            '<input type="number" id="intervalWorkSecInput" value="'+timing.workSec+'" min="5" max="600" style="width:90px;">' +
-          '</div>' +
-          '<p class="muted" style="font-size:12px; margin:6px 0 0;">Rounds auto-calculate from these times to fill your chosen time cap on the Workout tab.</p>';
-        list.appendChild(timingCard);
+    if(meta.type === "interval" || meta.type === "circuit"){
+      var timing = getIntervalTiming(day);
+      var timingCard = document.createElement("div");
+      timingCard.className = "card";
+      timingCard.innerHTML =
+        '<p class="superset-title" style="margin-top:0;">Interval Timing</p>' +
+        '<div class="exercise-row">' +
+          '<div style="flex:1; font-size:15px;">Rest (seconds)</div>' +
+          '<input type="number" id="intervalRestSecInput" value="'+timing.restSec+'" min="5" max="600" style="width:90px;">' +
+        '</div>' +
+        '<div class="exercise-row">' +
+          '<div style="flex:1; font-size:15px;">Work (seconds)</div>' +
+          '<input type="number" id="intervalWorkSecInput" value="'+timing.workSec+'" min="5" max="600" style="width:90px;">' +
+        '</div>' +
+        '<p class="muted" style="font-size:12px; margin:6px 0 0;">Rounds auto-calculate from these times to fill your chosen time cap on the Workout tab.</p>';
+      list.appendChild(timingCard);
 
-        document.getElementById("intervalRestSecInput").addEventListener("input", function(){
-          var val = this.value === "" ? "" : parseInt(this.value, 10);
-          dayData.restSec = (!isNaN(val) && val > 0) ? val : "";
-          saveConfig(config);
-          updateFixedDurationNote();
-        });
-        document.getElementById("intervalWorkSecInput").addEventListener("input", function(){
-          var val = this.value === "" ? "" : parseInt(this.value, 10);
-          dayData.workSec = (!isNaN(val) && val > 0) ? val : "";
-          saveConfig(config);
-          updateFixedDurationNote();
-        });
-      }
+      document.getElementById("intervalRestSecInput").addEventListener("input", function(){
+        var val = this.value === "" ? "" : parseInt(this.value, 10);
+        dayData.restSec = (!isNaN(val) && val > 0) ? val : "";
+        saveConfig(config);
+        updateFixedDurationNote();
+      });
+      document.getElementById("intervalWorkSecInput").addEventListener("input", function(){
+        var val = this.value === "" ? "" : parseInt(this.value, 10);
+        dayData.workSec = (!isNaN(val) && val > 0) ? val : "";
+        saveConfig(config);
+        updateFixedDurationNote();
+      });
     }
 
     // live auto-save: every keystroke writes straight into config, no Save button needed
@@ -1508,6 +1576,9 @@
         if(meta.type === "supersets"){
           var idx = parseInt(inp.dataset.ss, 10);
           dayData.supersets[idx][slot][field] = val;
+        } else if(meta.type === "circuit"){
+          var cIdx = parseInt(inp.dataset.ss, 10);
+          dayData.exercises[cIdx][field] = val;
         } else {
           dayData.exercise[field] = val;
         }
@@ -1571,6 +1642,14 @@
       });
     } else if(meta.fillMode === "single"){
       dayData.exercise.name = shuffle(meta.pool)[0];
+    } else if(meta.fillMode === "multi"){
+      // Keeps the same number of move slots already configured — just reshuffles which
+      // exercises from the pool fill them. Loops the shuffled pool if there are more slots
+      // than pool entries, so this never breaks even with a small custom pool.
+      var picks = shuffle(meta.pool);
+      dayData.exercises.forEach(function(ex, i){
+        ex.name = picks[i % picks.length];
+      });
     }
     // Auto-Fill changes names directly rather than through the input listener above, so
     // reset the streak here too.
@@ -1691,6 +1770,12 @@
       });
     } else if(type === "single" || type === "timed" || type === "interval"){
       list.push({ name: dayData.exercise.name, targetReps: dayData.exercise.reps, targetWeight: dayData.exercise.weight });
+    } else if(type === "circuit"){
+      // Only the first move — like interval days, the exercise showing right now is tracked
+      // live in session.current[0] as the circuit auto-advances through the rest of the list
+      // (see updateIntervalDisplay), not read from this flattened snapshot after the start.
+      var first = (dayData.exercises && dayData.exercises[0]) || { name:"", reps:10, weight:"" };
+      list.push({ name: first.name, targetReps: first.reps, targetWeight: first.weight });
     }
     return list;
   }
@@ -1733,12 +1818,13 @@
     if(meta.type === "timed"){
       fixedNote.style.display = "block";
       fixedNote.textContent = "1 continuous set · " + selectedCap + " min, no rest breaks.";
-    } else if(meta.type === "interval"){
+    } else if(meta.type === "interval" || meta.type === "circuit"){
       var timing = getIntervalTiming(day);
       var sets = computeIntervalSets(timing.workSec, timing.restSec, selectedCap);
       var totalMin = Math.round(sets * (timing.workSec + timing.restSec) / 60);
+      var startsWith = (meta.startPhase === "work") ? "starts right into work" : "starts with rest";
       fixedNote.style.display = "block";
-      fixedNote.textContent = "Auto interval: " + sets + " sets × " + timing.workSec + "s work / " + timing.restSec + "s rest · " + totalMin + " min total, starts with rest.";
+      fixedNote.textContent = "Auto interval: " + sets + " sets × " + timing.workSec + "s work / " + timing.restSec + "s rest · " + totalMin + " min total, " + startsWith + ".";
     } else {
       fixedNote.style.display = "none";
     }
@@ -1752,6 +1838,12 @@
     var restMsg = document.getElementById("restDayMsg");
     var previewHeading = document.getElementById("idlePreviewHeading");
     var fixedNote = document.getElementById("fixedDurationNote");
+    // Days with their own natural cycle length (currently just the Ab Circuit) default the
+    // time-cap selector to whatever cap best matches that day's own timing, instead of
+    // whatever generic cap you last used elsewhere — you can still change it before starting.
+    if(meta.capMin){
+      document.getElementById("timeCapSelect").value = String(meta.capMin);
+    }
     if(meta.type === "rest"){
       startRow.style.display = "none";
       restMsg.style.display = "block";
@@ -1807,6 +1899,17 @@
       colHead.style.display = "none";
       var exName = dayData.exercise ? dayData.exercise.name : "";
       listEl.innerHTML = '<div class="exercise-row"><div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(exName) + '</div></div>';
+      return;
+    }
+
+    if(meta.type === "circuit"){
+      // No reps/weight columns — same reasoning as timed/interval above, plus the exercise
+      // changes every set anyway so a fixed rep target wouldn't mean much here.
+      colHead.style.display = "none";
+      var exercises = dayData.exercises || [];
+      listEl.innerHTML = exercises.map(function(ex, i){
+        return '<div class="exercise-row"><div style="flex:1; min-width:0; font-size:15px;">' + (i+1) + '. ' + escapeHtml(ex.name) + '</div></div>';
+      }).join("");
       return;
     }
 
@@ -1868,7 +1971,7 @@
     var capMin = selectedCap;
     var intervalSets = null;
     var timing = null;
-    if(meta.type === "interval"){
+    if(meta.type === "interval" || meta.type === "circuit"){
       timing = getIntervalTiming(day);
       intervalSets = computeIntervalSets(timing.workSec, timing.restSec, selectedCap);
       capMin = Math.round(intervalSets * (timing.workSec + timing.restSec) / 60);
@@ -1890,7 +1993,7 @@
       roundSplitsMs: [],    // how long each completed round took (pause-aware), supersets days only
       current: newRoundEntries(null, dayDataSnapshot, meta.type)
     };
-    if(meta.type === "interval"){
+    if(meta.type === "interval" || meta.type === "circuit"){
       var startPhase = meta.startPhase || "rest";
       session.interval = {
         phase: startPhase,
@@ -1950,7 +2053,7 @@
     var badge = document.getElementById("roundsCompletedBadge");
     var roundNumBadge = document.getElementById("roundNumBadge");
 
-    if(session.dayType === "interval"){
+    if(session.dayType === "interval" || session.dayType === "circuit"){
       roundCard.style.display = "none";
       completeBtn.style.display = "none";
       intervalCard.style.display = "block";
@@ -2080,22 +2183,25 @@
     el.textContent = splits.length ? ("Splits: " + splits.map(formatSplitMs).join(" · ")) : "";
   }
 
-  // Auto-advances the Day 6 interval timer: counts down the current phase (rest/work) and,
-  // on reaching zero, flips to the next phase (playing a sound), logging a completed set
-  // once a work phase finishes. Runs off the same 1s ticker as the main elapsed clock.
+  // Auto-advances the Day 6 interval timer (and Day 4's ab circuit, which reuses the exact
+  // same engine — see the dayType checks below): counts down the current phase (rest/work)
+  // and, on reaching zero, flips to the next phase (playing a sound), logging a completed
+  // set once a work phase finishes. Runs off the same 1s ticker as the main elapsed clock.
   function updateIntervalDisplay(){
-    if(!session || session.dayType !== "interval" || !session.interval) return;
+    if(!session || (session.dayType !== "interval" && session.dayType !== "circuit") || !session.interval) return;
     var iv = session.interval;
     var phaseLabelEl = document.getElementById("intervalPhaseLabel");
     var countdownEl = document.getElementById("intervalCountdown");
     var setLabelEl = document.getElementById("intervalSetLabel");
     var badge = document.getElementById("roundsCompletedBadge");
+    var exerciseNameEl = document.getElementById("intervalExerciseName");
 
     if(iv.finished){
       phaseLabelEl.textContent = "✅ DONE";
       countdownEl.textContent = "0:00";
       setLabelEl.textContent = "All " + iv.totalSets + " sets complete!";
       badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
+      if(exerciseNameEl && session.current[0]) exerciseNameEl.textContent = session.current[0].name;
       updateIntervalTimelineProgress();
       return;
     }
@@ -2106,6 +2212,7 @@
       countdownEl.textContent = formatQuickTime(Math.ceil(frozenMs/1000));
       setLabelEl.textContent = "Set " + iv.setIndex + " of " + iv.totalSets;
       badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
+      if(exerciseNameEl && session.current[0]) exerciseNameEl.textContent = session.current[0].name;
       updateIntervalTimelineProgress();
       return;
     }
@@ -2119,8 +2226,11 @@
         iv.phase = "work";
         iv.phaseEndsAt += iv.workSec * 1000;
       } else {
-        // a work interval just finished — log it as a completed set
-        session.rounds.push(session.current);
+        // A work interval just finished — log it as a completed set. Cloned rather than
+        // pushed by reference: circuit days mutate session.current[0].name for the next
+        // exercise a few lines below, and without cloning that would silently rewrite
+        // every round already logged this session to whatever exercise comes next.
+        session.rounds.push(session.current.map(function(e){ return Object.assign({}, e); }));
         if(iv.setIndex >= iv.totalSets){
           iv.finished = true;
           iv.phase = "done";
@@ -2128,11 +2238,21 @@
           iv.setIndex += 1;
           iv.phase = "rest";
           iv.phaseEndsAt += iv.restSec * 1000;
+          if(session.dayType === "circuit"){
+            var exList = (session.dayData && session.dayData.exercises) || [];
+            if(exList.length && session.current[0]){
+              session.current[0].name = exList[(iv.setIndex - 1) % exList.length].name;
+            }
+          }
         }
       }
       msLeft = iv.finished ? 0 : (iv.phaseEndsAt - Date.now());
     }
     persistSession();
+    // Refresh after the transition loop above (not before) — that's where circuit days
+    // actually update session.current[0].name for the upcoming exercise, so reading it
+    // any earlier in this function would show the exercise that just finished, one set late.
+    if(exerciseNameEl && session.current[0]) exerciseNameEl.textContent = session.current[0].name;
 
     if(iv.finished){
       phaseLabelEl.textContent = "✅ DONE";
@@ -2248,7 +2368,7 @@
     if(session.paused){
       // resume
       session.totalPausedMs = (session.totalPausedMs || 0) + (Date.now() - session.pausedAt);
-      if(session.dayType === "interval" && session.interval && !session.interval.finished){
+      if((session.dayType === "interval" || session.dayType === "circuit") && session.interval && !session.interval.finished){
         // pick the interval phase back up where it left off instead of losing the paused time
         session.interval.phaseEndsAt = Date.now() + (session.interval.remainingMs || 0);
         session.interval.remainingMs = null;
@@ -2262,7 +2382,7 @@
     } else {
       // pause — also pause the Quick Timer if it's running so nothing keeps counting silently
       pauseQuickTimerRun();
-      if(session.dayType === "interval" && session.interval && !session.interval.finished){
+      if((session.dayType === "interval" || session.dayType === "circuit") && session.interval && !session.interval.finished){
         session.interval.remainingMs = Math.max(0, session.interval.phaseEndsAt - Date.now());
       }
       session.paused = true;
@@ -2330,7 +2450,7 @@
     resetToIdle();
     var msg;
     if(record.dayType === "timed") msg = "Workout saved: " + Math.round(elapsedSec/60) + " min continuous set";
-    else if(record.dayType === "interval") msg = "Workout saved: " + record.roundsCompleted + " / " + (record.totalSets || record.roundsCompleted) + " sets completed";
+    else if(record.dayType === "interval" || record.dayType === "circuit") msg = "Workout saved: " + record.roundsCompleted + " / " + (record.totalSets || record.roundsCompleted) + " sets completed";
     else msg = "Workout saved: " + record.roundsCompleted + " round(s) completed";
     if(calories) msg += ", ~" + calories + " kcal";
     alert(msg + ".");
@@ -2401,7 +2521,7 @@
         playTimerSound();
       }
     }
-    if(session.dayType === "interval") updateIntervalDisplay();
+    if(session.dayType === "interval" || session.dayType === "circuit") updateIntervalDisplay();
   }
 
   function startTicker(){
@@ -2929,7 +3049,7 @@
               var mm = Math.floor(r.elapsedSec/60), ss = String(r.elapsedSec%60).padStart(2,"0");
               var roundsLabel;
               if(r.dayType === "timed") roundsLabel = "1 continuous set";
-              else if(r.dayType === "interval") roundsLabel = r.roundsCompleted + " / " + (r.totalSets || r.roundsCompleted) + " sets";
+              else if(r.dayType === "interval" || r.dayType === "circuit") roundsLabel = r.roundsCompleted + " / " + (r.totalSets || r.roundsCompleted) + " sets";
               else roundsLabel = r.roundsCompleted + " rounds";
               var dayTag = r.dayLabel ? ("Day " + r.day + ": " + r.dayLabel + " — ") : "";
               var calTag = r.calories ? (", ~" + r.calories + " kcal") : "";
@@ -2997,7 +3117,7 @@
       var weightTag = totalVolume > 0 ? (' &middot; ' + Math.round(totalVolume).toLocaleString() + ' lb lifted') : "";
       var roundsLabel;
       if(rec.dayType === "timed") roundsLabel = "1 continuous set";
-      else if(rec.dayType === "interval") roundsLabel = rec.roundsCompleted + " / " + (rec.totalSets || rec.roundsCompleted) + " sets";
+      else if(rec.dayType === "interval" || rec.dayType === "circuit") roundsLabel = rec.roundsCompleted + " / " + (rec.totalSets || rec.roundsCompleted) + " sets";
       else roundsLabel = rec.roundsCompleted + " rounds";
       item.innerHTML =
         '<div class="history-head" data-idx="'+idx+'">' +
@@ -3015,7 +3135,7 @@
         if(detail.classList.contains("open")){ detail.classList.remove("open"); return; }
         if(!detail.dataset.built){
           var rec = history[idx];
-          if(rec.dayType === "timed" || rec.dayType === "interval"){
+          if(rec.dayType === "timed" || rec.dayType === "interval" || rec.dayType === "circuit"){
             detail.appendChild(buildCardioDetail(rec));
           } else {
             detail.appendChild(buildHistoryTotals(rec));
@@ -3051,13 +3171,13 @@
     };
   }
 
-  // For cardio days (timed/interval) reps and weight aren't meaningful, so History shows
-  // timing info instead of the per-exercise reps/weight table.
+  // For cardio days (timed/interval/circuit) reps and weight aren't meaningful, so History
+  // shows timing info instead of the per-exercise reps/weight table.
   function buildCardioDetail(rec){
     var wrap = document.createElement("div");
     var mm = Math.floor(rec.elapsedSec/60), ss = String(rec.elapsedSec%60).padStart(2,"0");
     var lines = [ "Total time: " + mm + ":" + ss ];
-    if(rec.dayType === "interval"){
+    if(rec.dayType === "interval" || rec.dayType === "circuit"){
       lines.push("Rest per round: " + (rec.restSec != null ? rec.restSec + "s" : "—"));
       lines.push("Work per round: " + (rec.workSec != null ? rec.workSec + "s" : "—"));
       lines.push("Sets completed: " + rec.roundsCompleted + " / " + (rec.totalSets || rec.roundsCompleted));
@@ -3069,6 +3189,18 @@
     p.style.margin = "6px 0";
     p.innerHTML = lines.join("<br>");
     wrap.appendChild(p);
+    // Circuit days cycle through different exercises each set (unlike Day 6's interval,
+    // which repeats one) — worth listing which moves actually came up that session.
+    if(rec.dayType === "circuit" && rec.rounds && rec.rounds.length){
+      var names = rec.rounds.map(function(r){ return r[0] && r[0].name; }).filter(Boolean);
+      if(names.length){
+        var namesP = document.createElement("p");
+        namesP.className = "day-nav-label";
+        namesP.style.margin = "6px 0";
+        namesP.textContent = "Moves: " + names.join(", ");
+        wrap.appendChild(namesP);
+      }
+    }
     return wrap;
   }
 
@@ -3197,7 +3329,7 @@
       row.style.display = "none"; // a continuous set has no round count to enter
     } else {
       row.style.display = "";
-      label.textContent = meta.type === "interval" ? "Sets Completed" : "Rounds Completed";
+      label.textContent = (meta.type === "interval" || meta.type === "circuit") ? "Sets Completed" : "Rounds Completed";
     }
   }
 
