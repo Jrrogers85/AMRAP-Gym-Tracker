@@ -60,11 +60,15 @@
   .exercise-row input:disabled, .exercise-row input[type=number]:disabled{opacity:0.5;}
   button.secondary.locked{background:var(--accent2); color:#2a1c00; border-color:var(--accent2);}
   button.secondary:disabled{opacity:0.45;}
-  .target-fields{display:flex; align-items:center; gap:5px; white-space:nowrap; color:var(--muted); font-size:13px; flex-shrink:0;}
+  .target-fields{display:flex; align-items:center; gap:4px; white-space:nowrap; color:var(--muted); font-size:13px; flex-shrink:0;}
   /* min-width:0 overrides the browser's default flex-item minimum, which is based on the
      input's content size — without it, typing a long value (or a stray extra digit) can
-     force the box to silently grow past the width below no matter what width says. */
-  .target-fields input{width:26px; min-width:0; text-align:center; padding:10px 0; font-size:14px;}
+     force the box to silently grow past the width below no matter what width says.
+     The [type=number] on the selector isn't decorative — it's what makes this rule MORE
+     specific than the generic `input[type=number]{width:100%; ...}` rule below. Without it,
+     both rules tie in specificity and the generic one (being later in the file) quietly won
+     every time, which is why every earlier width tweak here never actually showed up. */
+  .target-fields input[type=number]{width:70px; min-width:0; text-align:center; padding:10px 4px; font-size:15px;}
   input[type=text], input[type=number]{
     background:var(--card2); border:1px solid var(--border); color:var(--text);
     border-radius:8px; padding:10px 10px; font-size:15px; width:100%;
