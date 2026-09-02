@@ -187,10 +187,6 @@
         <button class="primary" id="quickTimerStartBtn" style="margin-top:0;">▶ Start</button>
         <button class="secondary" id="quickTimerResetBtn" style="margin-top:0;">↺ Reset</button>
       </div>
-      <div class="row2" style="margin-top:8px; align-items:center;">
-        <select id="quickTimerSound"></select>
-        <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
-      </div>
     </div>
 
     <div id="idleBlock" class="card">
@@ -277,10 +273,14 @@
         <option value="25">25 min</option>
         <option value="30">30 min</option>
       </select>
-      <label style="display:flex; align-items:center; gap:8px; margin-top:12px; font-size:13px; color:var(--muted); cursor:pointer;">
-        <input type="checkbox" id="soundThroughSilentToggle" style="width:auto; margin:0;">
+      <label style="display:flex; align-items:center; gap:10px; margin-top:12px; font-size:13px; color:var(--muted); cursor:pointer;">
+        <input type="checkbox" id="soundThroughSilentToggle" style="width:20px; height:20px; flex-shrink:0; margin:0;">
         Play beeps even if phone is on silent, or another app (music, podcasts, coaching audio, etc.) is playing and would otherwise mute them (may briefly pause that audio each beep)
       </label>
+      <div class="row2" style="margin-top:12px; align-items:center;">
+        <select id="quickTimerSound" style="flex:1;"></select>
+        <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
+      </div>
     </div>
 
     <select class="day-banner" id="dayBanner"></select>
@@ -337,8 +337,8 @@
           </div>
           <div id="calGrid" style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px;"></div>
           <div style="display:flex; gap:14px; margin-top:10px; font-size:11px; color:var(--muted);">
-            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--accent); margin-right:4px;"></span>Workout</span>
-            <span><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--blue); margin-right:4px;"></span>Protein goal</span>
+            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--accent); margin-right:4px;"></span>Workout</span>
+            <span><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--blue); margin-right:4px;"></span>Protein goal</span>
           </div>
           <div id="calDetail" class="day-nav-label" style="margin-top:10px; text-align:left;">Tap a day to see details.</div>
         </div>
@@ -448,7 +448,10 @@
         <button class="secondary" id="waterCustomBtn" style="margin-top:0;">+ Log</button>
       </div>
       <p class="muted" style="font-size:12px; margin:10px 0 0;" id="waterGoalNote"></p>
-      <div id="waterLogList" style="margin-top:8px;"></div>
+      <details id="waterLogDetails" style="margin-top:8px;">
+        <summary style="cursor:pointer; font-size:13px; color:var(--muted);" id="waterLogSummary">Today's Water Log</summary>
+        <div id="waterLogList" style="margin-top:8px;"></div>
+      </details>
     </div>
 
     <div class="card" id="quickAddFoodsCard">
@@ -458,11 +461,9 @@
     </div>
 
     <div class="card" id="addFoodCard">
-      <div class="flex-between" id="addFoodToggle" style="cursor:pointer;">
-        <h2 style="margin:0;">Add Food</h2>
-        <span class="muted" id="addFoodChevron" style="font-size:13px;">▸ Show</span>
-      </div>
-      <div id="addFoodFields" style="display:none;">
+      <details id="addFoodDetails">
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="addFoodSummary">Add Food</summary>
+      <div id="addFoodFields" style="margin-top:10px;">
         <p class="muted" style="font-size:12px; margin:10px 0 0;">Search by name (e.g. "Little Debbie Oatmeal Creme Pie") to pull in nutrition facts, or skip straight to entering it yourself below.</p>
         <div class="row2" style="margin-top:8px;">
           <input type="text" id="foodSearchInput" placeholder="Search a food...">
@@ -508,12 +509,15 @@
         <button class="secondary" id="logOnceBtn" style="margin-top:8px;">📝 Log just this once</button>
         <p class="muted" style="font-size:12px; margin:6px 0 0;">"Log just this once" adds it to today's log only — nothing gets saved for next time.</p>
       </div>
+      </details>
     </div>
 
     <div class="card">
-      <h2>Logged Today</h2>
-      <div id="loggedTodayList"></div>
-      <p class="muted" id="loggedTodayEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing logged yet today.</p>
+      <details id="loggedTodayDetails">
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="loggedTodaySummary">Logged Today</summary>
+        <div id="loggedTodayList" style="margin-top:10px;"></div>
+        <p class="muted" id="loggedTodayEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing logged yet today.</p>
+      </details>
     </div>
 
     <div class="card">
@@ -596,7 +600,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-08-30-b</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-08-30-f</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -1830,9 +1834,24 @@
     }
   }
 
+  // Days with their own built-in rest/work timer (Day 4's circuit, Day 6's interval) don't
+  // need the manual Quick Timer card too -- it was just extra clutter above a timer that's
+  // already running itself. Called on every day change/tab switch AND once unconditionally
+  // at page load, since a page load that restores straight into an active session skips the
+  // idle-screen refresh that would otherwise set this.
+  function updateQuickTimerVisibility(){
+    var meta = DAY_META[config.currentDay];
+    // Hidden on days that don't need a manual timer at all: Day 4/6 already auto-advance
+    // their own rest/work timer, Day 2 is one straight continuous set with no rest breaks
+    // or rounds to time, and Day 7 is a full rest day with no workout at all.
+    document.getElementById("quickTimerCard").style.display =
+      (meta.type === "interval" || meta.type === "circuit" || meta.type === "timed" || meta.type === "rest") ? "none" : "block";
+  }
+
   function updateWorkoutIdleUI(){
     var day = config.currentDay;
     var meta = DAY_META[day];
+    updateQuickTimerVisibility();
     document.getElementById("workoutDayBanner").value = String(day);
     var startRow = document.getElementById("startRow");
     var restMsg = document.getElementById("restDayMsg");
@@ -3039,15 +3058,15 @@
 
       if(recs.length || nut){
         var dots = document.createElement("div");
-        dots.style.cssText = "position:absolute; bottom:3px; left:50%; transform:translateX(-50%); display:flex; gap:2px;";
+        dots.style.cssText = "position:absolute; bottom:3px; left:50%; transform:translateX(-50%); display:flex; gap:3px;";
         if(recs.length){
           var d1 = document.createElement("span");
-          d1.style.cssText = "width:4px; height:4px; border-radius:50%; background:var(--accent); display:block;";
+          d1.style.cssText = "width:6px; height:6px; border-radius:50%; background:var(--accent); display:block;";
           dots.appendChild(d1);
         }
         if(hitProtein){
           var d2 = document.createElement("span");
-          d2.style.cssText = "width:4px; height:4px; border-radius:50%; background:var(--blue); display:block;";
+          d2.style.cssText = "width:6px; height:6px; border-radius:50%; background:var(--blue); display:block;";
           dots.appendChild(d2);
         }
         cell.appendChild(dots);
@@ -3530,7 +3549,9 @@
     }
     var wrap = document.getElementById("waterLogList");
     wrap.innerHTML = "";
-    todaysWaterEntries().forEach(function(entry){
+    var waterEntries = todaysWaterEntries();
+    document.getElementById("waterLogSummary").textContent = "Today's Water Log (" + waterEntries.length + ")";
+    waterEntries.forEach(function(entry){
       var row = document.createElement("div");
       row.className = "exercise-row";
       var time = new Date(entry.loggedAt).toLocaleTimeString(undefined, {hour:"numeric", minute:"2-digit"});
@@ -3742,6 +3763,7 @@
     wrap.innerHTML = "";
     var entries = todaysNutritionEntries().filter(function(e){ return !e.isWater; });
     emptyMsg.style.display = entries.length ? "none" : "block";
+    document.getElementById("loggedTodaySummary").textContent = "Logged Today (" + entries.length + ")";
     entries.forEach(function(entry){
       var row = document.createElement("div");
       row.className = "exercise-row";
@@ -3764,14 +3786,6 @@
       wrap.appendChild(row);
     });
   }
-
-  document.getElementById("addFoodToggle").addEventListener("click", function(){
-    var fields = document.getElementById("addFoodFields");
-    var chevron = document.getElementById("addFoodChevron");
-    var open = fields.style.display !== "none";
-    fields.style.display = open ? "none" : "block";
-    chevron.textContent = open ? "▸ Show" : "▾ Hide";
-  });
 
   function updateFoodWaterOzFieldVisibility(){
     var isPerUnit = document.getElementById("foodPerUnitToggle").checked;
@@ -3966,6 +3980,7 @@
   populateTimerSoundSelect();
   document.getElementById("quickTimerDuration").value = String(quickTimer.duration);
   renderQuickTimer();
+  updateQuickTimerVisibility();
   restoreSession();
   if(!session) resetToIdle();
   renderSetup();
