@@ -84,6 +84,14 @@
   }
   button.danger{background:transparent; color:var(--danger); border:1px solid var(--danger);}
   button.small{width:auto; padding:8px 12px; font-size:13px; border-radius:8px;}
+  /* Brief "yes, that registered" pulse on every button tap -- a brightness pulse works the
+     same way regardless of the button's own color: a dark .secondary button visibly
+     brightens/lights up, and an already-green .primary button gets a clear highlight flash
+     instead of nothing, without needing separate color logic per button type. Re-triggered
+     on every tap (even rapid repeats of the same button, like tapping a quick-add food 3x
+     for 3 scoops) via a forced reflow in the click handler below. */
+  @keyframes tapFlash{ 0%{filter:brightness(1);} 35%{filter:brightness(1.7);} 100%{filter:brightness(1);} }
+  button.tap-flash{ animation:tapFlash 0.32s ease-out; }
   .row2{display:flex; gap:8px;}
   .row2 > *{flex:1;}
   .timer-big{
@@ -600,7 +608,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-08-30-f</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-08-30-g</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -2650,6 +2658,19 @@
       console.warn("[AMRAP sound] silent re-prime threw:", err);
     }
   }
+  // Flashes any tapped button with a quick brightness pulse (see the .tap-flash keyframe in
+  // the stylesheet) -- a small "yes, that registered" confirmation for taps that don't
+  // otherwise change anything visible right away, like tapping a quick-add food multiple
+  // times to log several scoops. One delegated listener covers every button, including ones
+  // rendered fresh later (the food grid, history rows, etc.), since it reads whatever button
+  // was actually clicked rather than needing to be wired up per-button.
+  document.addEventListener("click", function(e){
+    var btn = e.target.closest && e.target.closest("button");
+    if(!btn) return;
+    btn.classList.remove("tap-flash");
+    void btn.offsetWidth; // force reflow so re-adding the class restarts the animation on rapid repeat taps
+    btn.classList.add("tap-flash");
+  });
   // Only bother priming the silent-audio-element trick at all if the user has opted in via
   // the "play beeps even if muted" toggle — it's the thing that steals iOS audio focus from
   // podcasts/music, so with the toggle off we skip it entirely and just use plain Web Audio
