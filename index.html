@@ -281,22 +281,20 @@
         <option value="25">25 min</option>
         <option value="30">30 min</option>
       </select>
-      <label style="display:flex; align-items:center; gap:10px; margin-top:12px; font-size:13px; color:var(--muted); cursor:pointer;">
-        <input type="checkbox" id="soundThroughSilentToggle" style="width:20px; height:20px; flex-shrink:0; margin:0;">
-        <span><b>Always-audible beeps (recommended)</b><br>Beeps play no matter what — phone on silent, or a podcast/audiobook/coaching audio running in another app. Each beep briefly dips that other audio, which picks itself back up straight after. Turn this off only if you'd rather never interrupt your audio, and accept that beeps may be silent.</span>
-      </label>
       <div class="row2" style="margin-top:12px; align-items:center;">
         <select id="quickTimerSound" style="flex:1;"></select>
         <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
       </div>
-      <div style="margin-top:12px;">
-        <div class="muted" style="font-size:13px; margin-bottom:6px;">How beeps behave around other audio:</div>
+      <div style="margin-top:14px;">
+        <div class="muted" style="font-size:13px; margin-bottom:6px;"><b>Beep behaviour</b></div>
         <select id="audioShareModeSelect" style="width:100%;">
-          <option value="solo">Like GPS directions — beeps through mute, other audio resumes (recommended)</option>
-          <option value="duck">Gently dip other audio — but silent when phone is on mute</option>
-          <option value="takeover">Take over the sound — beeps through mute, other audio stops for good</option>
+          <option value="duck">Share nicely — podcast survives · needs mute switch OFF</option>
+          <option value="takeover">Beep through the mute switch — other audio stops for good</option>
+          <option value="solo">Nav-style (experimental — may be silent on mute)</option>
         </select>
-        <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">If beeps ever go quiet with your phone on mute, you're on the middle option — switch back to the first.</p>
+        <p class="muted" style="font-size:12px; margin:8px 0 0;">iOS forces a choice here, so pick by what you're doing:</p>
+        <p class="muted" style="font-size:12px; margin:4px 0 0;"><b>Podcast or WWG audio playing?</b> Use "Share nicely" with the mute switch <b>off</b>. To keep other notifications quiet, turn on a <b>Focus</b> mode instead of using mute — Focus silences notifications but leaves music and beeps alone.</p>
+        <p class="muted" style="font-size:12px; margin:4px 0 0;"><b>Nothing else playing?</b> "Beep through the mute switch" works with mute either way.</p>
       </div>
       <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
       <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
@@ -619,7 +617,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-l</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-m</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -931,10 +929,12 @@
       defaultCapMin: 20,
       timerSound: "beep",
       timerDuration: 60,
-      soundThroughSilent: true,   // beeps you can always hear is the whole point of a gym timer
-      alwaysAudibleBeepsV1: true,
-      audioShareMode: "solo",     // "solo" = GPS-style: through mute, other audio resumes
-      audioShareModeV2: true,
+      // Field-tested on iPhone: "solo" and "duck" are BOTH silenced by the mute switch, and
+      // only "takeover" survives it — but takeover stops other audio for good. "duck" is the
+      // one mode where a podcast lives through a workout, so it's the default, paired with
+      // the advice to use a Focus mode instead of the mute switch.
+      audioShareMode: "duck",
+      audioShareModeV3: true,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
       foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
@@ -1009,8 +1009,7 @@
       if(!cfg.defaultCapMin) cfg.defaultCapMin = 20;
       if(!cfg.timerSound) cfg.timerSound = "beep";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
-      if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = true;
-      if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "solo";
+      if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "duck";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
       if(!cfg.profile.activityLevel) cfg.profile.activityLevel = "moderate";
       if(!cfg.profile.goal) cfg.profile.goal = "maintain";
@@ -1090,17 +1089,12 @@
       // and the beep path is now a real <audio> clip that gets past both the mute switch and
       // another app holding the session. Flag-gated, so if you later turn it off yourself it
       // stays off.
-      // "duck" (the notification-ping category) turned out to be silenced by the mute switch,
-      // which is the opposite of what a gym timer needs. One-time move to the GPS-style
-      // category, which should reach you on mute AND hand other audio back afterwards.
-      if(!cfg.audioShareModeV2){
-        if(cfg.audioShareMode === "duck") cfg.audioShareMode = "solo";
-        cfg.audioShareModeV2 = true;
-        starterFoodsChanged = true;
-      }
-      if(!cfg.alwaysAudibleBeepsV1){
-        cfg.soundThroughSilent = true;
-        cfg.alwaysAudibleBeepsV1 = true;
+      // Testing on a real iPhone settled this: the nav-style category is silenced by the mute
+      // switch too, so it was no better than the ping category it replaced. Move anyone left
+      // on it back to "duck", the one mode where other audio actually survives a workout.
+      if(!cfg.audioShareModeV3){
+        if(cfg.audioShareMode === "solo") cfg.audioShareMode = "duck";
+        cfg.audioShareModeV3 = true;
         starterFoodsChanged = true;
       }
       if(!cfg.day4CircuitSeededV2){
@@ -2620,78 +2614,6 @@
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
   }
 
-  // ---------- Try to make sound audible even with the iPhone's silent switch flipped ----------
-  // iOS silences Web Audio API tones (what this app's beeps use) whenever the hardware
-  // mute switch is on — but NOT a real HTML5 <audio> element. The common workaround: play a
-  // silent, looping <audio> track starting on the very first tap anywhere in the app, which
-  // "primes" the browser's audio session so the Web Audio tones become audible too, even
-  // with the switch muted. This is a widely used trick, not an official guarantee — Apple
-  // doesn't document or promise it, so it can behave differently across iOS versions.
-  function buildSilentWavDataUrl(){
-    var sampleRate = 8000, seconds = 1, numSamples = sampleRate * seconds, headerSize = 44;
-    var buffer = new ArrayBuffer(headerSize + numSamples);
-    var view = new DataView(buffer);
-    function writeString(offset, str){ for(var i=0;i<str.length;i++){ view.setUint8(offset+i, str.charCodeAt(i)); } }
-    writeString(0, "RIFF");
-    view.setUint32(4, 36 + numSamples, true);
-    writeString(8, "WAVE");
-    writeString(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate, true);
-    view.setUint16(32, 1, true);
-    view.setUint16(34, 8, true);
-    writeString(36, "data");
-    view.setUint32(40, numSamples, true);
-    var pcm = new Uint8Array(buffer, headerSize);
-    for(var i = 0; i < numSamples; i++){ pcm[i] = 128; } // 128 = silence for 8-bit unsigned PCM
-    var bytes = new Uint8Array(buffer);
-    var binary = "";
-    for(var j = 0; j < bytes.length; j++){ binary += String.fromCharCode(bytes[j]); }
-    return "data:audio/wav;base64," + btoa(binary);
-  }
-
-  // NOTE: this used to loop the silent track forever and request the "playback" audio
-  // session category, which fixed the silent-switch issue but had a side effect — iOS
-  // treated the tab as continuously "now playing" and paused podcasts/music in other apps.
-  // Playing it just once fixed that, but introduced a NEW problem: the "prime" fades over
-  // time (especially after the screen locks/dims, which suspends the audio session), so
-  // beeps would work once or twice and then go silent again. Fix: keep the one-time play on
-  // first tap (so beeps work immediately), but also briefly re-play the silent clip right
-  // before every timer beep (see replaySilentUnlock(), called from playTimerSound()). Each
-  // re-prime is ~1 second of true silence, so it shouldn't audibly interrupt music/podcasts
-  // the way constant looping did — it just briefly re-establishes the session at the moments
-  // a beep is actually needed.
-  var silentUnlockAudio = null;
-  function unlockIOSAudioSession(){
-    if(silentUnlockAudio){ replaySilentUnlock(); return; }
-    try{
-      silentUnlockAudio = document.createElement("audio");
-      silentUnlockAudio.loop = false;
-      silentUnlockAudio.setAttribute("playsinline", "");
-      silentUnlockAudio.src = buildSilentWavDataUrl();
-      silentUnlockAudio.play().then(function(){
-        console.log("[AMRAP sound] silent unlock track played once — this should let beeps through even in silent mode, without blocking other audio.");
-      }).catch(function(err){
-        console.warn("[AMRAP sound] silent unlock track failed to play:", err);
-      });
-    }catch(err){
-      console.warn("[AMRAP sound] couldn't build/play silent unlock track:", err);
-    }
-  }
-  function replaySilentUnlock(){
-    if(!silentUnlockAudio) return;
-    try{
-      silentUnlockAudio.currentTime = 0;
-      var p = silentUnlockAudio.play();
-      if(p && p.catch) p.catch(function(err){ console.warn("[AMRAP sound] silent re-prime failed:", err); });
-    }catch(err){
-      console.warn("[AMRAP sound] silent re-prime threw:", err);
-    }
-  }
-
   // ---------- How our sound shares the speaker with other apps ----------
   // Safari implements the Audio Session API (navigator.audioSession) — the one lever a web
   // page gets over how iOS treats its audio next to everyone else's. Three types matter here,
@@ -2715,7 +2637,7 @@
   function applyAudioSessionType(){
     try{
       if(navigator.audioSession){
-        navigator.audioSession.type = AUDIO_SESSION_TYPES[config.audioShareMode] || "transient-solo";
+        navigator.audioSession.type = AUDIO_SESSION_TYPES[config.audioShareMode] || "transient";
       }
     }catch(e){ /* older iOS / other browsers simply don't have this lever */ }
   }
@@ -2785,10 +2707,13 @@
     return beepWavCache[key];
   }
 
-  // A few elements cycled round-robin, so a beep landing while the previous one is still
-  // ringing doesn't cut it off (matters on Day 4, where beeps come every 60-75s and the bell
-  // sound runs almost a full second).
-  var beepPool = [], beepPoolIndex = 0, beepPoolKey = null, BEEP_POOL_SIZE = 3;
+  // Deliberately ONE player, not a pool. Every element that starts playing — even silently,
+  // even just to unlock it — claims the iOS audio session and stomps on whatever else is
+  // playing. Three players meant three stomps on your podcast every time the app was primed.
+  // Beeps are at minimum 15 seconds apart in any workout here, and the longest sound is under
+  // a second, so one player can never collide with itself and there's nothing to gain from
+  // more.
+  var beepPool = [], beepPoolIndex = 0, beepPoolKey = null, BEEP_POOL_SIZE = 1;
   function ensureBeepPool(key){
     if(beepPoolKey === key && beepPool.length) return;
     beepPoolKey = key;
@@ -2884,9 +2809,10 @@
   function onAnyUserGesture(){
     applyAudioSessionType();
     getAudioCtx();
-    if(config.soundThroughSilent) unlockIOSAudioSession();
-    // The <audio> backup beeps need one gesture-backed play() before iOS will ever let them
-    // fire on their own later, so claim that permission on the very first tap.
+    // iOS needs one gesture-backed play() before it will ever let the beep player fire on its
+    // own later. That unlock is a genuine audio-session grab, so it happens EXACTLY ONCE, on
+    // your first tap — never again. Repeating it on every tap and every app-switch was what
+    // killed the podcast before any beep had even sounded.
     if(!beepPoolPrimed){ primeBeepPool(); beepPoolPrimed = true; }
     renderAudioStatus();
   }
@@ -2902,8 +2828,9 @@
   document.addEventListener("visibilitychange", function(){
     if(!document.hidden){
       getAudioCtx();
-      if(config.soundThroughSilent) unlockIOSAudioSession();
-      primeBeepPool();
+      // Deliberately NOT re-priming the beep player here. Coming back to the app shouldn't
+      // cost your podcast its audio session — and the player stays unlocked for the life of
+      // the page anyway, so there's nothing to re-earn.
       renderAudioStatus();
       // Force an immediate catch-up check the moment the app is back in front (e.g. you
       // switch back from a fullscreen video) instead of waiting up to another second for the
@@ -3025,35 +2952,15 @@
     };
   });
 
-  // The one place that decides HOW a beep gets made.
-  //
-  // "Always audible" mode (the default) goes straight to the <audio> player every time and
-  // never touches Web Audio. That's deliberate: Web Audio has a blind spot that no code can
-  // see around — with the mute switch flipped, the context still reports itself as perfectly
-  // "running" while producing dead silence. There is no API anywhere that reveals the switch
-  // position, so a "try Web Audio first, fall back if it fails" scheme can't work: the
-  // failure is invisible. A real <audio> element carrying real sound is the only path that
-  // gets past the mute switch AND past another app holding the audio session, so when the
-  // goal is "I must hear this beep," we just use it unconditionally rather than being clever.
-  //
-  // With the toggle off, we prefer Web Audio while it's genuinely running (it mixes politely
-  // and won't blip your podcast), and drop to the <audio> player the instant it isn't —
-  // re-checked at every beep, so one interruption can't silence the rest of the workout.
+  // Every beep goes through the one <audio> player, full stop. Web Audio is no longer used
+  // for beeps at all: it has a blind spot no code can see around (with the mute switch on it
+  // reports itself perfectly "running" while producing dead silence, and no API reveals the
+  // switch position), and it's the piece that kept getting wedged by iOS interruptions.
+  // A real audio clip through a real player is both more reliable and the only thing whose
+  // relationship to other apps we can actually control, via the session type above.
   function emitTimerSound(key){
-    if(config.soundThroughSilent){
-      playFallbackBeep(key);
-      lastBeepPath = "always-audible player";
-      renderAudioStatus();
-      return;
-    }
-    getAudioCtx();
-    if(audioReady()){
-      TIMER_SOUNDS[key].play();
-      lastBeepPath = "Web Audio";
-    } else {
-      playFallbackBeep(key);
-      lastBeepPath = "backup player (" + audioCtxState() + ")";
-    }
+    playFallbackBeep(key);
+    lastBeepPath = "sound player";
     renderAudioStatus();
   }
 
@@ -3160,7 +3067,7 @@
   });
 
   var audioShareModeSelect = document.getElementById("audioShareModeSelect");
-  audioShareModeSelect.value = config.audioShareMode || "solo";
+  audioShareModeSelect.value = config.audioShareMode || "duck";
   audioShareModeSelect.addEventListener("change", function(e){
     config.audioShareMode = e.target.value;
     saveConfig(config);
@@ -3177,16 +3084,6 @@
 
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
     playTimerSound();
-  });
-
-  // "Play beeps even if phone is on silent" toggle — off by default. iOS won't let a beep
-  // both bypass the mute switch AND avoid briefly interrupting podcasts/music, so this is a
-  // deliberate trade-off the user gets to choose rather than something baked in for everyone.
-  var soundThroughSilentToggle = document.getElementById("soundThroughSilentToggle");
-  soundThroughSilentToggle.checked = !!config.soundThroughSilent;
-  soundThroughSilentToggle.addEventListener("change", function(e){
-    config.soundThroughSilent = e.target.checked;
-    saveConfig(config);
   });
 
   function quickTimerTick(){
