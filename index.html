@@ -635,7 +635,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-u</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-v</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -2888,55 +2888,72 @@
     return beepWavCache[key];
   }
 
-  // Deliberately ONE player, not a pool. Every element that starts playing — even silently,
-  // even just to unlock it — claims the iOS audio session and stomps on whatever else is
-  // playing. Three players meant three stomps on your podcast every time the app was primed.
-  // Beeps are at minimum 15 seconds apart in any workout here, and the longest sound is under
-  // a second, so one player can never collide with itself and there's nothing to gain from
-  // more.
-  var beepPool = [], beepPoolIndex = 0, beepPoolKey = null, BEEP_POOL_SIZE = 1;
-  function ensureBeepPool(key){
-    if(beepPoolKey === key && beepPool.length) return;
-    beepPoolKey = key;
-    beepPool = [];
-    var src = beepWavFor(key);
-    for(var i = 0; i < BEEP_POOL_SIZE; i++){
+  // ---------- one dedicated, pre-unlocked player per sound ----------
+  //
+  // TWO BUGS THIS REPLACES, both of which made live beeps silent while the Test buttons
+  // worked perfectly — the exact symptom that gave them away:
+  //
+  // 1. The old priming played at volume 0. On iOS, MUTED playback is allowed without a user
+  //    gesture, so a muted play() earns you nothing: the audible-playback permission is
+  //    never actually granted. Tapping Test worked because the tap itself authorises that
+  //    one play. Anything fired later by a timer had no permission and was refused in
+  //    silence. Priming has to make a genuinely audible (if instantly stopped) play.
+  //
+  // 2. There was a single player, rebuilt from scratch whenever the sound changed. That was
+  //    fine when the whole app had one beep, but with separate work/rest/finish sounds the
+  //    player is discarded and recreated mid-workout — and the replacement has never been
+  //    unlocked by a tap, and has had its src assigned microseconds before play() is called.
+  //
+  // So: one element per sound, every one of them unlocked together inside the Start tap, and
+  // never recreated afterwards.
+  var beepPlayers = {};      // sound key -> its own <audio> element
+  var primedKeys = {};       // which of those have been unlocked by a real tap
+  function playerFor(key){
+    if(!beepPlayers[key]){
       var el = document.createElement("audio");
       el.setAttribute("playsinline", "");
       el.preload = "auto";
-      el.src = src;
-      beepPool.push(el);
+      el.src = beepWavFor(key);
+      beepPlayers[key] = el;
     }
+    return beepPlayers[key];
   }
-  // iOS won't let an <audio> element play later unless it has been started once from a real
-  // user gesture, so we do a silent dry run (volume 0, immediately paused) on first tap and
-  // again whenever we come back to the app. Volume is restored before any real beep.
-  function primeBeepPool(){
-    var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
-    ensureBeepPool(key);
-    beepPool.forEach(function(el){
-      try{
-        el.volume = 0;
-        var p = el.play();
-        if(p && p.then){
-          p.then(function(){ try{ el.pause(); el.currentTime = 0; }catch(e){} })
-           .catch(function(){});
-        } else {
-          try{ el.pause(); el.currentTime = 0; }catch(e){}
-        }
-      }catch(e){}
+  // The three sounds currently in use (de-duplicated, since you might pick the same one twice).
+  function activeSoundKeys(){
+    var keys = [];
+    [config.timerSound, config.restSound, config.finishSound].forEach(function(k){
+      if(k && TIMER_SOUNDS[k] && keys.indexOf(k) === -1) keys.push(k);
+    });
+    if(!keys.length) keys.push("beep");
+    return keys;
+  }
+  // MUST be called from inside a real tap. Plays at full volume and stops it immediately —
+  // you get a click at most, and iOS grants the element permission to sound off on its own
+  // later. Pausing synchronously can make the play() promise reject; that's expected and
+  // harmless, the permission is still granted.
+  function unlockPlayer(el){
+    try{
+      el.volume = 1;
+      var p = el.play();
+      try{ el.pause(); el.currentTime = 0; }catch(e){}
+      if(p && p.catch) p.catch(function(){});
+    }catch(e){}
+  }
+  function primeBeepPlayers(){
+    applyAudioSessionType();
+    activeSoundKeys().forEach(function(k){
+      unlockPlayer(playerFor(k));
+      primedKeys[k] = true;
     });
   }
   function playFallbackBeep(key){
     try{
       applyAudioSessionType();  // re-asserted per beep; cheap, and iOS can reset it on us
-      ensureBeepPool(key);
-      var el = beepPool[beepPoolIndex % beepPool.length];
-      beepPoolIndex++;
+      var el = playerFor(key);
       el.volume = 1;
       try{ el.currentTime = 0; }catch(e){}
       var p = el.play();
-      if(p && p.catch) p.catch(function(err){ console.warn("[AMRAP sound] fallback beep failed:", err); });
+      if(p && p.catch) p.catch(function(err){ console.warn("[AMRAP sound] beep refused:", err); });
       return true;
     }catch(err){
       console.error("[AMRAP sound] fallback beep threw:", err);
@@ -2985,7 +3002,7 @@
     var line = supported
       ? ("Sharing control: ✅ supported · mode: " + current)
       : ("Sharing control: ❌ NOT supported on this iPhone — other apps' audio will always stop");
-    el.textContent = line + " · beeps ready: " + (beepPoolPrimed ? "yes" : "not yet") +
+    el.textContent = line + " · beeps ready: " + (allActiveSoundsPrimed() ? "yes" : "not yet") +
                      " · last beep: " + lastBeepPath;
   }
 
@@ -3008,10 +3025,14 @@
     if(b) b.style.display = show;
   }
 
-  var beepPoolPrimed = false;
+  // Re-primes whenever a sound in use hasn't been unlocked yet — which covers both the first
+  // Start tap and the case where you changed one of the three sounds since.
+  function allActiveSoundsPrimed(){
+    return activeSoundKeys().every(function(k){ return primedKeys[k]; });
+  }
   function ensureBeepPermission(){
     applyAudioSessionType();
-    if(!beepPoolPrimed){ primeBeepPool(); beepPoolPrimed = true; }
+    if(!allActiveSoundsPrimed()) primeBeepPlayers();
     renderAudioStatus();
   }
   // Coming back to the app is the single most important moment to un-stick the audio, since
@@ -3261,9 +3282,8 @@
   document.getElementById("quickTimerSound").addEventListener("change", function(e){
     config.timerSound = e.target.value;
     saveConfig(config);
-    // Rebuild + re-authorize the backup players for the newly chosen sound, so the fallback
-    // path plays what you picked rather than whatever was loaded before.
-    primeBeepPool();
+    // Changing a sound is itself a tap, so it's a valid moment to unlock the new one.
+    primeBeepPlayers();
   });
 
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
@@ -3274,6 +3294,7 @@
   document.getElementById("restSoundSelect").addEventListener("change", function(e){
     config.restSound = e.target.value;
     saveConfig(config);
+    primeBeepPlayers();
   });
 
   document.getElementById("restSoundTestBtn").addEventListener("click", function(){
@@ -3284,6 +3305,7 @@
   document.getElementById("finishSoundSelect").addEventListener("change", function(e){
     config.finishSound = e.target.value;
     saveConfig(config);
+    primeBeepPlayers();
   });
 
   document.getElementById("finishSoundTestBtn").addEventListener("click", function(){
