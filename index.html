@@ -289,6 +289,8 @@
         <select id="quickTimerSound" style="flex:1;"></select>
         <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
       </div>
+      <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
+      <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
     </div>
 
     <select class="day-banner" id="dayBanner"></select>
@@ -608,7 +610,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-08-30-g</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-i</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -2658,6 +2660,123 @@
       console.warn("[AMRAP sound] silent re-prime threw:", err);
     }
   }
+
+  // ---------- Backup beep path: a real <audio> element playing a generated WAV ----------
+  // Web Audio is the nicer instrument, but on iOS it's the fragile one — it's what gets put
+  // into "interrupted" and silently stops making sound. Plain <audio> elements are markedly
+  // tougher: they recover from interruptions on their own, they aren't subject to the
+  // AudioContext count limit, and a preloaded data-URI clip needs no network. So we keep Web
+  // Audio as the primary path and fall back to this whenever the context isn't actually
+  // running at the moment a beep is due — which means a dead context now costs you nothing
+  // instead of costing you every beep for the rest of the workout.
+  function renderToneWav(segments){
+    var sampleRate = 22050;
+    var totalSec = 0;
+    segments.forEach(function(s){ totalSec = Math.max(totalSec, s.start + s.dur); });
+    totalSec += 0.05;
+    var numSamples = Math.ceil(sampleRate * totalSec);
+    var headerSize = 44, bytesPerSample = 2;
+    var buffer = new ArrayBuffer(headerSize + numSamples * bytesPerSample);
+    var view = new DataView(buffer);
+    function writeString(offset, str){ for(var i=0;i<str.length;i++){ view.setUint8(offset+i, str.charCodeAt(i)); } }
+    writeString(0, "RIFF");
+    view.setUint32(4, 36 + numSamples * bytesPerSample, true);
+    writeString(8, "WAVE");
+    writeString(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);            // PCM
+    view.setUint16(22, 1, true);            // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * bytesPerSample, true);
+    view.setUint16(32, bytesPerSample, true);
+    view.setUint16(34, 16, true);           // bits per sample
+    writeString(36, "data");
+    view.setUint32(40, numSamples * bytesPerSample, true);
+
+    for(var n = 0; n < numSamples; n++){
+      var t = n / sampleRate, sample = 0;
+      for(var si = 0; si < segments.length; si++){
+        var seg = segments[si];
+        var rel = t - seg.start;
+        if(rel < 0 || rel > seg.dur) continue;
+        var phase = 2 * Math.PI * seg.freq * rel, wave;
+        if(seg.type === "square") wave = Math.sin(phase) >= 0 ? 1 : -1;
+        else if(seg.type === "triangle") wave = (2/Math.PI) * Math.asin(Math.sin(phase));
+        else wave = Math.sin(phase);
+        // Exponential decay mirrors the Web Audio version's gain ramp, plus a 5ms attack so
+        // the clip doesn't start with an audible click.
+        var env = Math.pow(0.004, rel / seg.dur);
+        if(rel < 0.005) env *= rel / 0.005;
+        sample += wave * seg.gain * env;
+      }
+      sample = Math.max(-1, Math.min(1, sample));
+      view.setInt16(headerSize + n * bytesPerSample, Math.round(sample * 32767), true);
+    }
+    var bytes = new Uint8Array(buffer), binary = "";
+    for(var j = 0; j < bytes.length; j++){ binary += String.fromCharCode(bytes[j]); }
+    return "data:audio/wav;base64," + btoa(binary);
+  }
+
+  var beepWavCache = {};
+  function beepWavFor(key){
+    if(!beepWavCache[key]){
+      var def = TIMER_SOUNDS[key] || TIMER_SOUNDS.beep;
+      beepWavCache[key] = renderToneWav(def.segments);
+    }
+    return beepWavCache[key];
+  }
+
+  // A few elements cycled round-robin, so a beep landing while the previous one is still
+  // ringing doesn't cut it off (matters on Day 4, where beeps come every 60-75s and the bell
+  // sound runs almost a full second).
+  var beepPool = [], beepPoolIndex = 0, beepPoolKey = null, BEEP_POOL_SIZE = 3;
+  function ensureBeepPool(key){
+    if(beepPoolKey === key && beepPool.length) return;
+    beepPoolKey = key;
+    beepPool = [];
+    var src = beepWavFor(key);
+    for(var i = 0; i < BEEP_POOL_SIZE; i++){
+      var el = document.createElement("audio");
+      el.setAttribute("playsinline", "");
+      el.preload = "auto";
+      el.src = src;
+      beepPool.push(el);
+    }
+  }
+  // iOS won't let an <audio> element play later unless it has been started once from a real
+  // user gesture, so we do a silent dry run (volume 0, immediately paused) on first tap and
+  // again whenever we come back to the app. Volume is restored before any real beep.
+  function primeBeepPool(){
+    var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
+    ensureBeepPool(key);
+    beepPool.forEach(function(el){
+      try{
+        el.volume = 0;
+        var p = el.play();
+        if(p && p.then){
+          p.then(function(){ try{ el.pause(); el.currentTime = 0; }catch(e){} })
+           .catch(function(){});
+        } else {
+          try{ el.pause(); el.currentTime = 0; }catch(e){}
+        }
+      }catch(e){}
+    });
+  }
+  function playFallbackBeep(key){
+    try{
+      ensureBeepPool(key);
+      var el = beepPool[beepPoolIndex % beepPool.length];
+      beepPoolIndex++;
+      el.volume = 1;
+      try{ el.currentTime = 0; }catch(e){}
+      var p = el.play();
+      if(p && p.catch) p.catch(function(err){ console.warn("[AMRAP sound] fallback beep failed:", err); });
+      return true;
+    }catch(err){
+      console.error("[AMRAP sound] fallback beep threw:", err);
+      return false;
+    }
+  }
   // Flashes any tapped button with a quick brightness pulse (see the .tap-flash keyframe in
   // the stylesheet) -- a small "yes, that registered" confirmation for taps that don't
   // otherwise change anything visible right away, like tapping a quick-add food multiple
@@ -2684,41 +2803,116 @@
   // and every beep after that fails silently even with the ringer on. Waking it up HERE,
   // the instant of any tap anywhere in the app, fixes that — it's silent itself and doesn't
   // touch other apps' audio, so unlike the toggle-gated trick below, it's safe to always run.
-  document.addEventListener("touchstart", function(){
+  // Plain-language mirror of what the audio system is actually doing, shown on the Setup tab.
+  // There's no way to open a JS console on an iPhone mid-workout, so without this every
+  // diagnosis is guesswork — this turns "the beeps just stopped" into an actual data point.
+  function renderAudioStatus(){
+    var el = document.getElementById("audioStatusLine");
+    if(!el) return;
+    var state = audioCtxState();
+    var human = {
+      "running":     "✅ Ready",
+      "suspended":   "⏸️ Asleep (wakes on next tap)",
+      "interrupted": "⚠️ Taken over by iOS or another app",
+      "closed":      "❌ Shut down",
+      "none":        "… Not started yet (tap anything)"
+    }[state] || ("? " + state);
+    el.textContent = "Sound status: " + human + " · last beep via: " + lastBeepPath;
+  }
+
+  var beepPoolPrimed = false;
+  function onAnyUserGesture(){
     getAudioCtx();
     if(config.soundThroughSilent) unlockIOSAudioSession();
-  }, { passive: true });
-  document.addEventListener("click", function(){
-    getAudioCtx();
-    if(config.soundThroughSilent) unlockIOSAudioSession();
-  });
-  // Defense-in-depth: iOS also tends to suspend the AudioContext whenever the tab is
-  // backgrounded (screen lock, app switch) — resume it the moment it's visible again so a
-  // beep that fires right as you return isn't silently dropped.
+    // The <audio> backup beeps need one gesture-backed play() before iOS will ever let them
+    // fire on their own later, so claim that permission on the very first tap.
+    if(!beepPoolPrimed){ primeBeepPool(); beepPoolPrimed = true; }
+    renderAudioStatus();
+  }
+  document.addEventListener("touchstart", onAnyUserGesture, { passive: true });
+  document.addEventListener("click", onAnyUserGesture);
+  // Coming back to the app is the single most important moment to un-stick the audio, since
+  // that's exactly when iOS has just handed the audio session back to us. We RESUME here
+  // rather than rebuilding: iOS caps how many AudioContexts a page may ever create, and a
+  // context built here wouldn't help anyway, because a context created outside a real user
+  // gesture is born suspended and can't start itself. Resuming an existing context that iOS
+  // just released, on the other hand, works — and the app-wide tap listeners above give it a
+  // second, gesture-backed chance the instant you touch anything.
   document.addEventListener("visibilitychange", function(){
-    if(!document.hidden && typeof sharedAudioCtx !== "undefined" && sharedAudioCtx && sharedAudioCtx.state === "suspended"){
-      sharedAudioCtx.resume().catch(function(){});
+    if(!document.hidden){
+      getAudioCtx();
+      if(config.soundThroughSilent) unlockIOSAudioSession();
+      primeBeepPool();
+      renderAudioStatus();
+      // Force an immediate catch-up check the moment the app is back in front (e.g. you
+      // switch back from a fullscreen video) instead of waiting up to another second for the
+      // next tick — same reasoning as the 5-minute-mark catch-up logic in updateClockDisplay.
+      if(session) updateClockDisplay();
     }
-    // Force an immediate catch-up check the moment the app is back in front (e.g. you
-    // switch back from a fullscreen video) instead of waiting up to another second for the
-    // next tick — same reasoning as the 5-minute-mark catch-up logic in updateClockDisplay.
-    if(!document.hidden && session) updateClockDisplay();
   });
 
   // ---------- Quick Timer (manual, up to 1 minute, selectable alert sound) ----------
   var sharedAudioCtx = null;
+  var audioCtxBuildCount = 0;      // iOS caps how many AudioContexts a page may ever create
+  var MAX_AUDIO_CTX_BUILDS = 3;    // stay well under Safari's (~4) hard limit
+  var lastBeepPath = "—";          // which code path actually produced the most recent beep
+
+  // THE BUG THIS FIXES (the reason beeps died the moment you switched apps and came back):
+  //
+  // Safari on iOS has a NON-STANDARD AudioContext state that no other browser has:
+  // "interrupted". It is not in the Web Audio spec. iOS puts the context into "interrupted"
+  // (NOT "suspended") whenever the system yanks the audio session away — backgrounding the
+  // tab, locking the screen, a phone call, or another app (hi, WWG) claiming exclusive audio.
+  //
+  // The old code only ever checked for "suspended", so on iOS the check was simply false,
+  // resume() was never called, and the context sat in "interrupted" forever. Worse, playing
+  // into an interrupted context throws NOTHING — createOscillator/start/stop all "succeed"
+  // silently — so no error ever surfaced anywhere. That is exactly the reported symptom:
+  // works for a beep or two, then permanently, silently dead until a full reload, and the
+  // Test button is just as dead because it shares the same context.
+  //
+  // Fix: treat ANY state that isn't "running" as needing a resume, and never trust that a
+  // context which merely *claims* to be fine actually is.
+  function audioCtxState(){
+    return sharedAudioCtx ? sharedAudioCtx.state : "none";
+  }
+  function audioReady(){
+    return !!sharedAudioCtx && sharedAudioCtx.state === "running";
+  }
+  // Only rebuilds when there is genuinely nothing usable left. iOS Safari caps how many
+  // AudioContexts a page can create, and close() does NOT reliably free the underlying slot,
+  // so blindly making a new one on every app-switch burns through the budget in a few
+  // switches and leaves you permanently silent — the opposite of a fix. Resume beats rebuild.
   function getAudioCtx(){
+    if(sharedAudioCtx && sharedAudioCtx.state === "closed") sharedAudioCtx = null;
     if(!sharedAudioCtx){
-      sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      console.log("[AMRAP sound] created AudioContext, initial state:", sharedAudioCtx.state);
+      if(audioCtxBuildCount >= MAX_AUDIO_CTX_BUILDS) return null;
+      try{
+        sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtxBuildCount++;
+        // statechange fires the instant iOS interrupts us, which is the earliest possible
+        // moment we can react (and keeps the on-screen status readout honest).
+        sharedAudioCtx.addEventListener("statechange", function(){
+          console.log("[AMRAP sound] AudioContext statechange ->", audioCtxState());
+          renderAudioStatus();
+        });
+      }catch(err){
+        console.error("[AMRAP sound] could not create AudioContext:", err);
+        return null;
+      }
     }
-    if(sharedAudioCtx.state === "suspended"){
-      console.log("[AMRAP sound] context was suspended, resuming…");
-      sharedAudioCtx.resume().then(function(){
-        console.log("[AMRAP sound] resume() resolved, state now:", sharedAudioCtx.state);
-      }).catch(function(err){
-        console.error("[AMRAP sound] resume() FAILED:", err);
-      });
+    // "suspended" is the standard idle state; "interrupted" is Safari's iOS-only one. Both
+    // need the same treatment, and anything else unexpected gets it too.
+    if(sharedAudioCtx.state !== "running"){
+      try{
+        var p = sharedAudioCtx.resume();
+        if(p && p.then){
+          p.then(function(){ renderAudioStatus(); })
+           .catch(function(err){ console.warn("[AMRAP sound] resume() rejected:", err); });
+        }
+      }catch(err){
+        console.warn("[AMRAP sound] resume() threw:", err);
+      }
     }
     return sharedAudioCtx;
   }
@@ -2740,19 +2934,60 @@
     }
   }
 
+  // Each sound is defined once, as data, so the Web Audio path and the generated-WAV fallback
+  // path stay in sync automatically — pick a different sound and both paths follow.
   var TIMER_SOUNDS = {
-    beep:  { label:"Classic Beep",  play:function(){ playTone(880,0,0.18,"sine",0.25); playTone(1200,0.18,0.3,"sine",0.25); } },
-    chime: { label:"Triple Chime",  play:function(){ playTone(659.25,0,0.18,"sine",0.22); playTone(783.99,0.18,0.18,"sine",0.22); playTone(1046.5,0.36,0.35,"sine",0.22); } },
-    buzz:  { label:"Digital Buzz",  play:function(){ playTone(220,0,0.15,"square",0.15); playTone(220,0.2,0.15,"square",0.15); playTone(220,0.4,0.25,"square",0.15); } },
-    bell:  { label:"Bell Ring",     play:function(){ playTone(1318.5,0,0.9,"sine",0.2); playTone(2637,0,0.9,"triangle",0.08); } }
+    beep:  { label:"Classic Beep", segments:[
+      { freq:880,     start:0,    dur:0.18, type:"sine",     gain:0.25 },
+      { freq:1200,    start:0.18, dur:0.3,  type:"sine",     gain:0.25 }
+    ]},
+    chime: { label:"Triple Chime", segments:[
+      { freq:659.25,  start:0,    dur:0.18, type:"sine",     gain:0.22 },
+      { freq:783.99,  start:0.18, dur:0.18, type:"sine",     gain:0.22 },
+      { freq:1046.5,  start:0.36, dur:0.35, type:"sine",     gain:0.22 }
+    ]},
+    buzz:  { label:"Digital Buzz", segments:[
+      { freq:220,     start:0,    dur:0.15, type:"square",   gain:0.15 },
+      { freq:220,     start:0.2,  dur:0.15, type:"square",   gain:0.15 },
+      { freq:220,     start:0.4,  dur:0.25, type:"square",   gain:0.15 }
+    ]},
+    bell:  { label:"Bell Ring", segments:[
+      { freq:1318.5,  start:0,    dur:0.9,  type:"sine",     gain:0.2  },
+      { freq:2637,    start:0,    dur:0.9,  type:"triangle", gain:0.08 }
+    ]}
   };
+  Object.keys(TIMER_SOUNDS).forEach(function(key){
+    TIMER_SOUNDS[key].play = function(){
+      TIMER_SOUNDS[key].segments.forEach(function(s){
+        playTone(s.freq, s.start, s.dur, s.type, s.gain);
+      });
+    };
+  });
+
+  // The one place that decides HOW a beep gets made. Web Audio when it's genuinely running,
+  // the <audio> fallback the moment it isn't — checked fresh at every single beep, so one
+  // interruption can never silence the rest of the workout. Note we don't wait on resume()
+  // here: it's asynchronous, and a beep that arrives late is no use during a work interval,
+  // so we make noise immediately by whichever path is alive right now and let the resume
+  // land in the background for next time.
+  function emitTimerSound(key){
+    getAudioCtx();
+    if(audioReady()){
+      TIMER_SOUNDS[key].play();
+      lastBeepPath = "Web Audio";
+    } else {
+      playFallbackBeep(key);
+      lastBeepPath = "backup player (" + audioCtxState() + ")";
+    }
+    renderAudioStatus();
+  }
 
   function playTimerSound(){
     // Only re-prime the silent-audio-element trick if the user opted in — that's the part
     // that can briefly interrupt podcasts/music, so respect their choice from the toggle.
     if(config.soundThroughSilent) replaySilentUnlock();
     var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
-    TIMER_SOUNDS[key].play();
+    emitTimerSound(key);
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
   }
 
@@ -2765,7 +3000,7 @@
     if(config.soundThroughSilent) replaySilentUnlock();
     var defaultKey = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
     var finishedKey = defaultKey === "bell" ? "chime" : "bell";
-    TIMER_SOUNDS[finishedKey].play();
+    emitTimerSound(finishedKey);
     if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
   }
 
@@ -2853,6 +3088,9 @@
   document.getElementById("quickTimerSound").addEventListener("change", function(e){
     config.timerSound = e.target.value;
     saveConfig(config);
+    // Rebuild + re-authorize the backup players for the newly chosen sound, so the fallback
+    // path plays what you picked rather than whatever was loaded before.
+    primeBeepPool();
   });
 
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
@@ -4001,6 +4239,7 @@
   populateTimerSoundSelect();
   document.getElementById("quickTimerDuration").value = String(quickTimer.duration);
   renderQuickTimer();
+  renderAudioStatus();
   updateQuickTimerVisibility();
   restoreSession();
   if(!session) resetToIdle();
