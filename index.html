@@ -617,7 +617,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-m</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-o</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -2021,6 +2021,9 @@
     var day = config.currentDay;
     var meta = DAY_META[day];
     if(meta.type === "rest") return;
+    // Belt and braces: normally beginPrepCountdown() already claimed this from the Start tap,
+    // but a session restored after a reload lands here without one. Harmless when already done.
+    ensureBeepPermission();
     var selectedCap = parseInt(document.getElementById("timeCapSelect").value, 10);
     var capMin = selectedCap;
     var intervalSets = null;
@@ -2352,6 +2355,11 @@
   function beginPrepCountdown(){
     var meta = DAY_META[config.currentDay];
     if(meta.type === "rest") return;
+    // Claim beep permission HERE, not in startWorkout(). startWorkout() can be reached by the
+    // prep countdown running out on its own — a timer callback, with no user gesture behind
+    // it — and iOS refuses to unlock audio from there. Tapping Start is a real gesture, so
+    // this is the last moment we're guaranteed to have one.
+    ensureBeepPermission();
     prepState.remaining = PREP_SECONDS;
     document.getElementById("idleBlock").style.display = "none";
     document.getElementById("prepBlock").style.display = "block";
@@ -2597,22 +2605,6 @@
     tickInterval = setInterval(updateClockDisplay, 1000);
   }
 
-  function beep(){
-    try{
-      var ctx = new (window.AudioContext || window.webkitAudioContext)();
-      var o = ctx.createOscillator();
-      var g = ctx.createGain();
-      o.type = "sine"; o.frequency.value = 880;
-      o.connect(g); g.connect(ctx.destination);
-      g.gain.setValueAtTime(0.2, ctx.currentTime);
-      o.start();
-      o.frequency.setValueAtTime(880, ctx.currentTime);
-      o.frequency.setValueAtTime(1200, ctx.currentTime+0.15);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5);
-      o.stop(ctx.currentTime+0.5);
-    }catch(e){}
-    if(navigator.vibrate) navigator.vibrate([200,100,200]);
-  }
 
   // ---------- How our sound shares the speaker with other apps ----------
   // Safari implements the Audio Session API (navigator.audioSession) — the one lever a web
@@ -2786,38 +2778,39 @@
   // triggered this" — so if the very first attempt to wake it up happens from that delayed
   // timer callback instead of the tap itself, iOS can refuse it for the rest of the session,
   // and every beep after that fails silently even with the ringer on. Waking it up HERE,
-  // the instant of any tap anywhere in the app, fixes that — it's silent itself and doesn't
-  // touch other apps' audio, so unlike the toggle-gated trick below, it's safe to always run.
-  // Plain-language mirror of what the audio system is actually doing, shown on the Setup tab.
-  // There's no way to open a JS console on an iPhone mid-workout, so without this every
-  // diagnosis is guesswork — this turns "the beeps just stopped" into an actual data point.
+  // Plain-language mirror of what the sound system is doing, shown on the Setup tab. There's
+  // no way to open a JS console on an iPhone mid-workout, so without this every diagnosis is
+  // guesswork. The most important thing it reports is whether this iPhone supports the audio
+  // sharing control at all — if it doesn't, the mode dropdown is decorative and iOS will
+  // always take other apps' audio, which is worth knowing rather than chasing.
   function renderAudioStatus(){
     var el = document.getElementById("audioStatusLine");
     if(!el) return;
-    var state = audioCtxState();
-    var human = {
-      "running":     "✅ Ready",
-      "suspended":   "⏸️ Asleep (wakes on next tap)",
-      "interrupted": "⚠️ Taken over by iOS or another app",
-      "closed":      "❌ Shut down",
-      "none":        "… Not started yet (tap anything)"
-    }[state] || ("? " + state);
-    el.textContent = "Sound status: " + human + " · last beep via: " + lastBeepPath;
+    var supported = false, current = "—";
+    try{
+      if(navigator.audioSession){
+        supported = true;
+        current = navigator.audioSession.type || "auto";
+      }
+    }catch(e){}
+    var line = supported
+      ? ("Sharing control: ✅ supported · mode: " + current)
+      : ("Sharing control: ❌ NOT supported on this iPhone — other apps' audio will always stop");
+    el.textContent = line + " · beeps ready: " + (beepPoolPrimed ? "yes" : "not yet") +
+                     " · last beep: " + lastBeepPath;
   }
 
+  // iOS needs ONE gesture-backed play() before it will let the beep player fire on its own
+  // later. That unlock genuinely activates the audio session, so it is deferred to the last
+  // possible moment — the tap that starts a workout (or the Test button) — instead of firing
+  // on any old tap. Browsing the app, flipping tabs, editing exercises and switching away and
+  // back now never touch the sound system at all, which is what lets a podcast survive.
   var beepPoolPrimed = false;
-  function onAnyUserGesture(){
+  function ensureBeepPermission(){
     applyAudioSessionType();
-    getAudioCtx();
-    // iOS needs one gesture-backed play() before it will ever let the beep player fire on its
-    // own later. That unlock is a genuine audio-session grab, so it happens EXACTLY ONCE, on
-    // your first tap — never again. Repeating it on every tap and every app-switch was what
-    // killed the podcast before any beep had even sounded.
     if(!beepPoolPrimed){ primeBeepPool(); beepPoolPrimed = true; }
     renderAudioStatus();
   }
-  document.addEventListener("touchstart", onAnyUserGesture, { passive: true });
-  document.addEventListener("click", onAnyUserGesture);
   // Coming back to the app is the single most important moment to un-stick the audio, since
   // that's exactly when iOS has just handed the audio session back to us. We RESUME here
   // rather than rebuilding: iOS caps how many AudioContexts a page may ever create, and a
@@ -2827,10 +2820,9 @@
   // second, gesture-backed chance the instant you touch anything.
   document.addEventListener("visibilitychange", function(){
     if(!document.hidden){
-      getAudioCtx();
-      // Deliberately NOT re-priming the beep player here. Coming back to the app shouldn't
-      // cost your podcast its audio session — and the player stays unlocked for the life of
-      // the page anyway, so there's nothing to re-earn.
+      // Deliberately touching NO audio here. Coming back to the app must not cost your
+      // podcast its audio session, and the beep player stays unlocked for the life of the
+      // page anyway, so there is nothing to re-earn.
       renderAudioStatus();
       // Force an immediate catch-up check the moment the app is back in front (e.g. you
       // switch back from a fullscreen video) instead of waiting up to another second for the
@@ -2840,90 +2832,19 @@
   });
 
   // ---------- Quick Timer (manual, up to 1 minute, selectable alert sound) ----------
-  var sharedAudioCtx = null;
-  var audioCtxBuildCount = 0;      // iOS caps how many AudioContexts a page may ever create
-  var MAX_AUDIO_CTX_BUILDS = 3;    // stay well under Safari's (~4) hard limit
-  var lastBeepPath = "—";          // which code path actually produced the most recent beep
+  var lastBeepPath = "—";   // what produced the most recent beep, for the status readout
 
-  // THE BUG THIS FIXES (the reason beeps died the moment you switched apps and came back):
+  // NOTE — Web Audio has been removed from this app entirely, on purpose.
   //
-  // Safari on iOS has a NON-STANDARD AudioContext state that no other browser has:
-  // "interrupted". It is not in the Web Audio spec. iOS puts the context into "interrupted"
-  // (NOT "suspended") whenever the system yanks the audio session away — backgrounding the
-  // tab, locking the screen, a phone call, or another app (hi, WWG) claiming exclusive audio.
+  // Beeps are now a real audio clip played through a real player (see below), which is both
+  // more reliable on iOS and the only thing whose relationship to other apps we can steer.
+  // But the old Web Audio layer was still being created and woken on every tap and every
+  // app-switch, long after it had stopped producing any sound. On iOS, merely opening and
+  // starting an audio context ACTIVATES the system audio session — which is enough to stop
+  // whatever else is playing. So the app was killing podcasts for a component that no longer
+  // made a single noise. Deleting it outright is the fix; there is nothing here to keep.
   //
-  // The old code only ever checked for "suspended", so on iOS the check was simply false,
-  // resume() was never called, and the context sat in "interrupted" forever. Worse, playing
-  // into an interrupted context throws NOTHING — createOscillator/start/stop all "succeed"
-  // silently — so no error ever surfaced anywhere. That is exactly the reported symptom:
-  // works for a beep or two, then permanently, silently dead until a full reload, and the
-  // Test button is just as dead because it shares the same context.
-  //
-  // Fix: treat ANY state that isn't "running" as needing a resume, and never trust that a
-  // context which merely *claims* to be fine actually is.
-  function audioCtxState(){
-    return sharedAudioCtx ? sharedAudioCtx.state : "none";
-  }
-  function audioReady(){
-    return !!sharedAudioCtx && sharedAudioCtx.state === "running";
-  }
-  // Only rebuilds when there is genuinely nothing usable left. iOS Safari caps how many
-  // AudioContexts a page can create, and close() does NOT reliably free the underlying slot,
-  // so blindly making a new one on every app-switch burns through the budget in a few
-  // switches and leaves you permanently silent — the opposite of a fix. Resume beats rebuild.
-  function getAudioCtx(){
-    if(sharedAudioCtx && sharedAudioCtx.state === "closed") sharedAudioCtx = null;
-    if(!sharedAudioCtx){
-      if(audioCtxBuildCount >= MAX_AUDIO_CTX_BUILDS) return null;
-      try{
-        sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        audioCtxBuildCount++;
-        // statechange fires the instant iOS interrupts us, which is the earliest possible
-        // moment we can react (and keeps the on-screen status readout honest).
-        sharedAudioCtx.addEventListener("statechange", function(){
-          console.log("[AMRAP sound] AudioContext statechange ->", audioCtxState());
-          renderAudioStatus();
-        });
-      }catch(err){
-        console.error("[AMRAP sound] could not create AudioContext:", err);
-        return null;
-      }
-    }
-    // "suspended" is the standard idle state; "interrupted" is Safari's iOS-only one. Both
-    // need the same treatment, and anything else unexpected gets it too.
-    if(sharedAudioCtx.state !== "running"){
-      try{
-        var p = sharedAudioCtx.resume();
-        if(p && p.then){
-          p.then(function(){ renderAudioStatus(); })
-           .catch(function(err){ console.warn("[AMRAP sound] resume() rejected:", err); });
-        }
-      }catch(err){
-        console.warn("[AMRAP sound] resume() threw:", err);
-      }
-    }
-    return sharedAudioCtx;
-  }
-  function playTone(freq, delay, duration, waveType, gainVal){
-    try{
-      var ctx = getAudioCtx();
-      console.log("[AMRAP sound] playTone — context state:", ctx.state, "freq:", freq);
-      var o = ctx.createOscillator();
-      var g = ctx.createGain();
-      o.type = waveType || "sine";
-      o.frequency.setValueAtTime(freq, ctx.currentTime + delay);
-      o.connect(g); g.connect(ctx.destination);
-      g.gain.setValueAtTime(gainVal || 0.2, ctx.currentTime + delay);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration);
-      o.start(ctx.currentTime + delay);
-      o.stop(ctx.currentTime + delay + duration + 0.05);
-    }catch(err){
-      console.error("[AMRAP sound] playTone threw an error:", err);
-    }
-  }
-
-  // Each sound is defined once, as data, so the Web Audio path and the generated-WAV fallback
-  // path stay in sync automatically — pick a different sound and both paths follow.
+  // Sound definitions stay as pure data — they're what the WAV generator above renders from.
   var TIMER_SOUNDS = {
     beep:  { label:"Classic Beep", segments:[
       { freq:880,     start:0,    dur:0.18, type:"sine",     gain:0.25 },
@@ -2944,14 +2865,6 @@
       { freq:2637,    start:0,    dur:0.9,  type:"triangle", gain:0.08 }
     ]}
   };
-  Object.keys(TIMER_SOUNDS).forEach(function(key){
-    TIMER_SOUNDS[key].play = function(){
-      TIMER_SOUNDS[key].segments.forEach(function(s){
-        playTone(s.freq, s.start, s.dur, s.type, s.gain);
-      });
-    };
-  });
-
   // Every beep goes through the one <audio> player, full stop. Web Audio is no longer used
   // for beeps at all: it has a blind spot no code can see around (with the mute switch on it
   // reports itself perfectly "running" while producing dead silence, and no API reveals the
@@ -3083,6 +2996,7 @@
   });
 
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
+    ensureBeepPermission();
     playTimerSound();
   });
 
@@ -3111,6 +3025,7 @@
   }
 
   function startQuickTimerRun(){
+    ensureBeepPermission();   // same reasoning as startWorkout: claim it inside the real tap
     if(quickTimer.remaining <= 0) quickTimer.remaining = quickTimer.duration;
     quickTimer.endsAt = Date.now() + quickTimer.remaining*1000;
     quickTimer.running = true;
