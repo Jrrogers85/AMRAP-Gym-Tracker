@@ -289,6 +289,14 @@
         <select id="quickTimerSound" style="flex:1;"></select>
         <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
       </div>
+      <div style="margin-top:12px;">
+        <div class="muted" style="font-size:13px; margin-bottom:6px;">When something else is playing (podcast, WWG audio, music):</div>
+        <select id="audioShareModeSelect" style="width:100%;">
+          <option value="duck">Dip it for each beep, then let it carry on (recommended)</option>
+          <option value="takeover">Take over the sound completely (stops the other app)</option>
+        </select>
+        <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">"Dip it" is how a GPS voice behaves over car music. Only pick "take over" if a beep ever comes out silent while your phone is on mute with nothing else playing.</p>
+      </div>
       <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
       <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
     </div>
@@ -610,7 +618,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-j</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-k</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -924,6 +932,7 @@
       timerDuration: 60,
       soundThroughSilent: true,   // beeps you can always hear is the whole point of a gym timer
       alwaysAudibleBeepsV1: true,
+      audioShareMode: "duck",     // "duck" = dip other audio per beep; "takeover" = seize it
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
       foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
@@ -998,7 +1007,8 @@
       if(!cfg.defaultCapMin) cfg.defaultCapMin = 20;
       if(!cfg.timerSound) cfg.timerSound = "beep";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
-      if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = false;
+      if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = true;
+      if(cfg.audioShareMode !== "duck" && cfg.audioShareMode !== "takeover") cfg.audioShareMode = "duck";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
       if(!cfg.profile.activityLevel) cfg.profile.activityLevel = "moderate";
       if(!cfg.profile.goal) cfg.profile.goal = "maintain";
@@ -2672,6 +2682,29 @@
     }
   }
 
+  // ---------- How our sound shares the speaker with other apps ----------
+  // Safari implements the Audio Session API (navigator.audioSession), which is the only lever
+  // a web page gets over how iOS treats its audio relative to other apps:
+  //
+  //   "transient" — the category iOS uses for notification sounds. Our beep plays OVER other
+  //                 audio and merely DUCKS it (dips the volume) for the moment it's sounding,
+  //                 then that audio comes straight back on its own. This is what makes a
+  //                 podcast survive a beep instead of being killed outright.
+  //   "playback"  — the category a media player uses. It seizes the audio session, which
+  //                 stops other apps and leaves them stopped, but it does ignore the mute
+  //                 switch, so beeps are audible even on silent with nothing else playing.
+  //
+  // Left alone, Safari picks for itself and tends toward "playback" for an <audio> element
+  // carrying real sound — which is exactly why the podcast got stopped and never resumed.
+  function applyAudioSessionType(){
+    try{
+      if(navigator.audioSession){
+        navigator.audioSession.type =
+          (config.audioShareMode === "takeover") ? "playback" : "transient";
+      }
+    }catch(e){ /* older iOS / other browsers simply don't have this lever */ }
+  }
+
   // ---------- Backup beep path: a real <audio> element playing a generated WAV ----------
   // Web Audio is the nicer instrument, but on iOS it's the fragile one — it's what gets put
   // into "interrupted" and silently stops making sound. Plain <audio> elements are markedly
@@ -2775,6 +2808,7 @@
   }
   function playFallbackBeep(key){
     try{
+      applyAudioSessionType();  // re-asserted per beep; cheap, and iOS can reset it on us
       ensureBeepPool(key);
       var el = beepPool[beepPoolIndex % beepPool.length];
       beepPoolIndex++;
@@ -2833,6 +2867,7 @@
 
   var beepPoolPrimed = false;
   function onAnyUserGesture(){
+    applyAudioSessionType();
     getAudioCtx();
     if(config.soundThroughSilent) unlockIOSAudioSession();
     // The <audio> backup beeps need one gesture-backed play() before iOS will ever let them
@@ -3107,6 +3142,14 @@
     config.timerDuration = val;
     saveConfig(config);
     renderQuickTimer();
+  });
+
+  var audioShareModeSelect = document.getElementById("audioShareModeSelect");
+  audioShareModeSelect.value = config.audioShareMode || "duck";
+  audioShareModeSelect.addEventListener("change", function(e){
+    config.audioShareMode = e.target.value;
+    saveConfig(config);
+    applyAudioSessionType();
   });
 
   document.getElementById("quickTimerSound").addEventListener("change", function(e){
