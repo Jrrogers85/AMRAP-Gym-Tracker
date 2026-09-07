@@ -630,7 +630,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-q</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-s</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -698,6 +698,23 @@
     "Dead Bug", "Heel Touches", "V-Ups", "Windshield Wipers",
     "Sit-ups", "Mountain Climbers"
   ];
+
+  // ---------- Exercises held for time rather than counted in reps ----------
+  // "10 reps" is meaningless for a wall sit, so these get a hold timer in place of the
+  // reps/weight boxes. Matching is by name so Auto-Fill just works without any setup.
+  // Adding more later is a one-line job — the plank family is deliberately left out for now
+  // because it only appears on Day 4, which is already entirely time-based.
+  var HOLD_EXERCISES = ["Wall Sit"];
+  var DEFAULT_HOLD_SEC = 60;
+  function isHoldExercise(name){
+    if(!name) return false;
+    var n = String(name).trim().toLowerCase();
+    return HOLD_EXERCISES.some(function(h){ return h.toLowerCase() === n; });
+  }
+  function holdTargetFor(ex){
+    var v = parseInt(ex && ex.holdSec, 10);
+    return (v > 0) ? v : DEFAULT_HOLD_SEC;
+  }
 
   // ---------- Day metadata (structure/theme; not user data) ----------
   // "met" = a rough baseline MET (metabolic equivalent) value used only for the optional
@@ -1819,8 +1836,8 @@
     var list = [];
     if(type === "supersets"){
       dayData.supersets.forEach(function(ss){
-        list.push({ name: ss.a.name, targetReps: ss.a.reps, targetWeight: ss.a.weight });
-        list.push({ name: ss.b.name, targetReps: ss.b.reps, targetWeight: ss.b.weight });
+        list.push({ name: ss.a.name, targetReps: ss.a.reps, targetWeight: ss.a.weight, targetHoldSec: holdTargetFor(ss.a) });
+        list.push({ name: ss.b.name, targetReps: ss.b.reps, targetWeight: ss.b.weight, targetHoldSec: holdTargetFor(ss.b) });
       });
     } else if(type === "single" || type === "timed" || type === "interval"){
       list.push({ name: dayData.exercise.name, targetReps: dayData.exercise.reps, targetWeight: dayData.exercise.weight });
@@ -1842,7 +1859,16 @@
       // actually entered last round.
       var prevWeight = prevRound ? prevRound[i].weight : (ex.targetWeight || "");
       var prevReps = prevRound ? prevRound[i].reps : ex.targetReps;
-      return { name: ex.name, targetReps: ex.targetReps, weight: prevWeight, reps: prevReps };
+      var entry = { name: ex.name, targetReps: ex.targetReps, weight: prevWeight, reps: prevReps };
+      // Held-for-time exercises carry their own little timer instead of reps/weight. heldSec
+      // starts at zero each round — a fresh round means a fresh hold to earn.
+      if(isHoldExercise(ex.name)){
+        entry.isHold = true;
+        entry.holdSec = ex.targetHoldSec || DEFAULT_HOLD_SEC;
+        entry.heldSec = 0;
+        entry.holdEndsAt = null;
+      }
+      return entry;
     });
   }
 
@@ -1985,6 +2011,17 @@
     colHead.style.display = "";
 
     function rowHtml(idx, slot, ex){
+      // Held-for-time moves get one "seconds" box where the reps/weight pair would be —
+      // there's no weight to record and no reps to count, just how long you're aiming to hold.
+      if(isHoldExercise(ex.name)){
+        return '<div class="exercise-row">' +
+          '<div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(ex.name) +
+            '<div class="muted" style="font-size:11px;">held for time</div></div>' +
+          '<div class="target-fields">' +
+            '<input type="number" data-ss="'+idx+'" data-slot="'+slot+'" data-field="holdSec" value="'+holdTargetFor(ex)+'" placeholder="sec" min="5" max="600">' +
+            '<span style="font-size:12px;">sec</span>' +
+          '</div></div>';
+      }
       return '<div class="exercise-row">' +
         '<div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(ex.name) + '</div>' +
         '<div class="target-fields">' +
@@ -2008,8 +2045,9 @@
     listEl.querySelectorAll("input").forEach(function(inp){
       inp.addEventListener("input", function(){
         var field = inp.dataset.field, slot = inp.dataset.slot;
-        var val = inp.value === "" ? (field === "weight" ? "" : 10) : parseInt(inp.value, 10);
-        if(isNaN(val)) val = (field === "weight") ? "" : 10;
+        function fallback(){ return field === "weight" ? "" : (field === "holdSec" ? DEFAULT_HOLD_SEC : 10); }
+        var val = inp.value === "" ? fallback() : parseInt(inp.value, 10);
+        if(isNaN(val)) val = fallback();
         if(meta.type === "supersets"){
           var idx = parseInt(inp.dataset.ss, 10);
           dayData.supersets[idx][slot][field] = val;
@@ -2240,10 +2278,19 @@
       }
       var row = document.createElement("div");
       row.className = "exercise-log-row";
-      row.innerHTML =
-        '<div class="name">' + escapeHtml(ex.name) + '<small>target ' + ex.targetReps + ' reps</small></div>' +
-        '<input type="number" inputmode="decimal" data-i="'+i+'" data-f="weight" value="'+ex.weight+'" placeholder="lb">' +
-        '<input type="number" inputmode="numeric" data-i="'+i+'" data-f="reps" value="'+ex.reps+'" placeholder="#">';
+      if(ex.isHold){
+        // No reps, no weight — just a button that spans both value columns and doubles as
+        // the countdown display. One tap starts it immediately (you're already in position).
+        row.innerHTML =
+          '<div class="name">' + escapeHtml(ex.name) + '<small>hold ' + holdEntryTarget(ex) + 's</small></div>' +
+          '<button class="secondary holdBtn" id="holdBtn-'+i+'" data-i="'+i+'" style="grid-column:span 2; margin-top:0; font-variant-numeric:tabular-nums;">' +
+            holdButtonLabel(ex) + '</button>';
+      } else {
+        row.innerHTML =
+          '<div class="name">' + escapeHtml(ex.name) + '<small>target ' + ex.targetReps + ' reps</small></div>' +
+          '<input type="number" inputmode="decimal" data-i="'+i+'" data-f="weight" value="'+ex.weight+'" placeholder="lb">' +
+          '<input type="number" inputmode="numeric" data-i="'+i+'" data-f="reps" value="'+ex.reps+'" placeholder="#">';
+      }
       wrap.appendChild(row);
     });
     wrap.querySelectorAll("input").forEach(function(inp){
@@ -2253,6 +2300,63 @@
         persistSession();
       });
     });
+    wrap.querySelectorAll(".holdBtn").forEach(function(btn){
+      btn.addEventListener("click", function(){ toggleHold(parseInt(btn.dataset.i, 10)); });
+    });
+  }
+
+  // ---------- Hold timers (Wall Sit and friends) ----------
+  // Deliberately driven off the workout's existing one-second ticker with the end time stored
+  // in the session, rather than its own setInterval: that way it survives a re-render, a page
+  // reload mid-round, and the app being backgrounded, exactly like the interval days do.
+  function holdEntryTarget(ex){
+    var v = parseInt(ex && ex.holdSec, 10);
+    return (v > 0) ? v : DEFAULT_HOLD_SEC;
+  }
+  function holdRemainingSec(ex){
+    if(!ex.holdEndsAt) return null;
+    return Math.max(0, Math.ceil((ex.holdEndsAt - Date.now())/1000));
+  }
+  function holdButtonLabel(ex){
+    var rem = holdRemainingSec(ex);
+    if(rem !== null) return "⏱ " + formatQuickTime(rem);
+    if(ex.heldSec > 0) return "✅ " + ex.heldSec + "s — tap to redo";
+    return "▶ Start " + holdEntryTarget(ex) + "s hold";
+  }
+  function refreshHoldButton(i){
+    var btn = document.getElementById("holdBtn-" + i);
+    if(btn && session && session.current[i]) btn.textContent = holdButtonLabel(session.current[i]);
+  }
+  function toggleHold(i){
+    if(!session || !session.current[i]) return;
+    var ex = session.current[i];
+    if(ex.holdEndsAt){
+      // Tapped while running — bank whatever was actually held rather than throwing it away.
+      var rem = holdRemainingSec(ex);
+      ex.heldSec = Math.max(0, holdEntryTarget(ex) - rem);
+      ex.holdEndsAt = null;
+    } else {
+      ex.heldSec = 0;
+      ex.holdEndsAt = Date.now() + holdEntryTarget(ex) * 1000;
+    }
+    persistSession();
+    refreshHoldButton(i);
+  }
+  // Called every tick while a supersets workout is running.
+  function updateHoldTimers(){
+    if(!session || !session.current) return;
+    var changed = false;
+    session.current.forEach(function(ex, i){
+      if(!ex.isHold || !ex.holdEndsAt) return;
+      if(Date.now() >= ex.holdEndsAt){
+        ex.heldSec = holdEntryTarget(ex);
+        ex.holdEndsAt = null;
+        changed = true;
+        playTimerSound();
+      }
+      refreshHoldButton(i);
+    });
+    if(changed) persistSession();
   }
 
   // Shows a running list of how long each completed round took this session (e.g.
@@ -2621,6 +2725,7 @@
       }
     }
     if(session.dayType === "interval" || session.dayType === "circuit") updateIntervalDisplay();
+    else if(session.dayType === "supersets") updateHoldTimers();
   }
 
   function startTicker(){
@@ -2666,11 +2771,54 @@
   // Audio as the primary path and fall back to this whenever the context isn't actually
   // running at the moment a beep is due — which means a dead context now costs you nothing
   // instead of costing you every beep for the rest of the workout.
-  function renderToneWav(segments){
-    var sampleRate = 22050;
+  // ---------- tiny synth toolkit ----------
+  // Plain tones can only ever sound like a hearing test. These three primitives are what
+  // separate a beep from a sound with some character:
+  //   sndEnv  — a fast attack (no click) followed by exponential decay, i.e. "struck".
+  //   sndFm   — one oscillator bending another's pitch, with the bend dying away quickly.
+  //             That decaying bend is precisely what a real bell or marimba does, and it's
+  //             the whole reason the newer sounds have a metallic edge the old ones lack.
+  //   sndNoise— broadband hiss, used in tiny bursts as the "knock" of something being hit.
+  var SND_TAU = Math.PI * 2;
+  function sndEnv(t, decayTau, attack){
+    attack = attack || 0.003;
+    var a = t < attack ? (t/attack) : 1;
+    return a * Math.exp(-t/decayTau);
+  }
+  function sndFm(t, carrier, ratio, index, indexTau){
+    var mod = Math.sin(SND_TAU * carrier * ratio * t) * index * Math.exp(-t/indexTau);
+    return Math.sin(SND_TAU * carrier * t + mod);
+  }
+  function sndNoise(){ return Math.random()*2 - 1; }
+
+  // Turns the old-style {freq,start,dur,type,gain} list into a sample function, so the
+  // original four sounds and the newer synthesised ones can share one renderer.
+  function segmentsRender(segments){
+    return function(t){
+      var sample = 0;
+      for(var si = 0; si < segments.length; si++){
+        var seg = segments[si];
+        var rel = t - seg.start;
+        if(rel < 0 || rel > seg.dur) continue;
+        var phase = SND_TAU * seg.freq * rel, wave;
+        if(seg.type === "square") wave = Math.sin(phase) >= 0 ? 1 : -1;
+        else if(seg.type === "triangle") wave = (2/Math.PI) * Math.asin(Math.sin(phase));
+        else wave = Math.sin(phase);
+        var e = Math.pow(0.004, rel / seg.dur);
+        if(rel < 0.005) e *= rel / 0.005;
+        sample += wave * seg.gain * e;
+      }
+      return sample;
+    };
+  }
+  function segmentsDuration(segments){
     var totalSec = 0;
     segments.forEach(function(s){ totalSec = Math.max(totalSec, s.start + s.dur); });
-    totalSec += 0.05;
+    return totalSec + 0.05;
+  }
+
+  function renderSoundWav(render, totalSec){
+    var sampleRate = 22050;
     var numSamples = Math.ceil(sampleRate * totalSec);
     var headerSize = 44, bytesPerSample = 2;
     var buffer = new ArrayBuffer(headerSize + numSamples * bytesPerSample);
@@ -2691,21 +2839,8 @@
     view.setUint32(40, numSamples * bytesPerSample, true);
 
     for(var n = 0; n < numSamples; n++){
-      var t = n / sampleRate, sample = 0;
-      for(var si = 0; si < segments.length; si++){
-        var seg = segments[si];
-        var rel = t - seg.start;
-        if(rel < 0 || rel > seg.dur) continue;
-        var phase = 2 * Math.PI * seg.freq * rel, wave;
-        if(seg.type === "square") wave = Math.sin(phase) >= 0 ? 1 : -1;
-        else if(seg.type === "triangle") wave = (2/Math.PI) * Math.asin(Math.sin(phase));
-        else wave = Math.sin(phase);
-        // Exponential decay mirrors the Web Audio version's gain ramp, plus a 5ms attack so
-        // the clip doesn't start with an audible click.
-        var env = Math.pow(0.004, rel / seg.dur);
-        if(rel < 0.005) env *= rel / 0.005;
-        sample += wave * seg.gain * env;
-      }
+      var sample = render(n / sampleRate);
+      if(!isFinite(sample)) sample = 0;
       sample = Math.max(-1, Math.min(1, sample));
       view.setInt16(headerSize + n * bytesPerSample, Math.round(sample * 32767), true);
     }
@@ -2714,11 +2849,15 @@
     return "data:audio/wav;base64," + btoa(binary);
   }
 
+  // Clips are built the first time a sound is actually needed, not up front — only the one
+  // or two you've selected ever get generated.
   var beepWavCache = {};
   function beepWavFor(key){
     if(!beepWavCache[key]){
       var def = TIMER_SOUNDS[key] || TIMER_SOUNDS.beep;
-      beepWavCache[key] = renderToneWav(def.segments);
+      var render = def.render || segmentsRender(def.segments);
+      var dur = def.dur || segmentsDuration(def.segments);
+      beepWavCache[key] = renderSoundWav(render, dur);
     }
     return beepWavCache[key];
   }
@@ -2901,8 +3040,64 @@
     bell:  { label:"Bell Ring", segments:[
       { freq:1318.5,  start:0,    dur:0.9,  type:"sine",     gain:0.2  },
       { freq:2637,    start:0,    dur:0.9,  type:"triangle", gain:0.08 }
-    ]}
+    ]},
+
+    // ----- synthesised sounds (auditioned in the sound lab) -----
+    // Each is one "voice" fired three times. Repeating a sound reads as a deliberate signal
+    // rather than an incidental blip, which is what stops it being mistaken for a text arriving.
+    triplebeep: { label:"Triple Beep", dur:0.60, render: function(t){
+      var out = 0;
+      for(var i=0;i<3;i++){
+        var rt = t - i*0.13;
+        if(rt < 0 || rt > 0.30) continue;
+        out += sharpBeepVoice(rt);
+      }
+      return out * 0.8;
+    }},
+    woodblock3: { label:"Triple Wood Block", dur:0.38, render: function(t){
+      var out = 0;
+      for(var i=0;i<3;i++){
+        var rt = t - i*0.10;
+        if(rt < 0 || rt > 0.14) continue;
+        out += woodBlockVoice(rt);
+      }
+      return out * 0.95;
+    }},
+    levelup3: { label:"Level Up ×3", dur:2.4, render: function(t){
+      var out = 0;
+      for(var i=0;i<3;i++){
+        var rt = t - i*0.48;
+        if(rt < 0 || rt > 1.6) continue;
+        // only the final run is allowed to hang in the air; letting all three ring would smear
+        out += levelRunVoice(rt, i === 2 ? 0.75 : 0.16);
+      }
+      return out * 0.78;
+    }}
   };
+
+  // The single voices the three sounds above are built from.
+  function sharpBeepVoice(t){
+    var e = sndEnv(t, 0.07, 0.0008);
+    var body = Math.sin(SND_TAU*1050*t) + 0.4*Math.sin(SND_TAU*2100*t) + 0.18*Math.sin(SND_TAU*3150*t);
+    var click = sndNoise() * Math.exp(-t/0.0018) * 0.5;   // the "struck" transient
+    return (body*0.32 + click) * e * 1.5;
+  }
+  function woodBlockVoice(t){
+    var f = 1350 * (1 + 0.5*Math.exp(-t/0.004));          // tiny downward blip on impact
+    var body = Math.sin(SND_TAU*f*t) * Math.exp(-t/0.016);
+    var knock = sndNoise() * Math.exp(-t/0.0025) * 0.55;
+    return (body*0.85 + knock) * 0.72;
+  }
+  function levelRunVoice(t, finalTau){
+    var notes = [[0,523],[0.085,659],[0.17,784],[0.255,1047]], out = 0;
+    for(var i=0;i<notes.length;i++){
+      var rt = t - notes[i][0];
+      if(rt < 0) continue;
+      var tau = (i === notes.length-1) ? (finalTau || 0.42) : 0.09;
+      out += sndFm(rt, notes[i][1], 2.0, 2.4, 0.05) * sndEnv(rt, tau, 0.0015);
+    }
+    return out * 0.62;
+  }
   // Every beep goes through the one <audio> player, full stop. Web Audio is no longer used
   // for beeps at all: it has a blind spot no code can see around (with the mute switch on it
   // reports itself perfectly "running" while producing dead silence, and no API reveals the
@@ -3450,6 +3645,15 @@
     var head = "<tr><th>Exercise</th><th>Total Reps</th><th>Total Volume</th></tr>";
     var body = "";
     names.forEach(function(name, exi){
+      // A held exercise has no reps and no weight — its total is seconds under tension, which
+      // is the number worth watching for progression on something like a wall sit.
+      var isHold = rec.rounds.some(function(round){ return round[exi] && round[exi].isHold; });
+      if(isHold){
+        var totalHeld = 0;
+        rec.rounds.forEach(function(round){ totalHeld += parseFloat(round[exi] && round[exi].heldSec) || 0; });
+        body += "<tr><td>"+escapeHtml(name)+"</td><td>"+totalHeld+"s held</td><td>&mdash;</td></tr>";
+        return;
+      }
       var totalReps = 0, totalVolume = 0;
       rec.rounds.forEach(function(round){
         var e = round[exi];
@@ -3528,7 +3732,9 @@
       body += "<tr><td>"+escapeHtml(name)+"</td>";
       rec.rounds.forEach(function(round){
         var e = round[exi];
-        body += "<td>"+(e.weight||"-")+"&times;"+(e.reps||"-")+"</td>";
+        body += e && e.isHold
+          ? "<td>"+(e.heldSec || 0)+"s</td>"
+          : "<td>"+(e.weight||"-")+"&times;"+(e.reps||"-")+"</td>";
       });
       body += "</tr>";
     });
