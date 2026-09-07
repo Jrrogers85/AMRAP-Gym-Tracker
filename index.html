@@ -290,12 +290,13 @@
         <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
       </div>
       <div style="margin-top:12px;">
-        <div class="muted" style="font-size:13px; margin-bottom:6px;">When something else is playing (podcast, WWG audio, music):</div>
+        <div class="muted" style="font-size:13px; margin-bottom:6px;">How beeps behave around other audio:</div>
         <select id="audioShareModeSelect" style="width:100%;">
-          <option value="duck">Dip it for each beep, then let it carry on (recommended)</option>
-          <option value="takeover">Take over the sound completely (stops the other app)</option>
+          <option value="solo">Like GPS directions — beeps through mute, other audio resumes (recommended)</option>
+          <option value="duck">Gently dip other audio — but silent when phone is on mute</option>
+          <option value="takeover">Take over the sound — beeps through mute, other audio stops for good</option>
         </select>
-        <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">"Dip it" is how a GPS voice behaves over car music. Only pick "take over" if a beep ever comes out silent while your phone is on mute with nothing else playing.</p>
+        <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">If beeps ever go quiet with your phone on mute, you're on the middle option — switch back to the first.</p>
       </div>
       <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
       <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
@@ -618,7 +619,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-k</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-l</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -932,7 +933,8 @@
       timerDuration: 60,
       soundThroughSilent: true,   // beeps you can always hear is the whole point of a gym timer
       alwaysAudibleBeepsV1: true,
-      audioShareMode: "duck",     // "duck" = dip other audio per beep; "takeover" = seize it
+      audioShareMode: "solo",     // "solo" = GPS-style: through mute, other audio resumes
+      audioShareModeV2: true,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
       foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
@@ -1008,7 +1010,7 @@
       if(!cfg.timerSound) cfg.timerSound = "beep";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
       if(typeof cfg.soundThroughSilent !== "boolean") cfg.soundThroughSilent = true;
-      if(cfg.audioShareMode !== "duck" && cfg.audioShareMode !== "takeover") cfg.audioShareMode = "duck";
+      if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "solo";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
       if(!cfg.profile.activityLevel) cfg.profile.activityLevel = "moderate";
       if(!cfg.profile.goal) cfg.profile.goal = "maintain";
@@ -1088,6 +1090,14 @@
       // and the beep path is now a real <audio> clip that gets past both the mute switch and
       // another app holding the session. Flag-gated, so if you later turn it off yourself it
       // stays off.
+      // "duck" (the notification-ping category) turned out to be silenced by the mute switch,
+      // which is the opposite of what a gym timer needs. One-time move to the GPS-style
+      // category, which should reach you on mute AND hand other audio back afterwards.
+      if(!cfg.audioShareModeV2){
+        if(cfg.audioShareMode === "duck") cfg.audioShareMode = "solo";
+        cfg.audioShareModeV2 = true;
+        starterFoodsChanged = true;
+      }
       if(!cfg.alwaysAudibleBeepsV1){
         cfg.soundThroughSilent = true;
         cfg.alwaysAudibleBeepsV1 = true;
@@ -2683,24 +2693,29 @@
   }
 
   // ---------- How our sound shares the speaker with other apps ----------
-  // Safari implements the Audio Session API (navigator.audioSession), which is the only lever
-  // a web page gets over how iOS treats its audio relative to other apps:
+  // Safari implements the Audio Session API (navigator.audioSession) — the one lever a web
+  // page gets over how iOS treats its audio next to everyone else's. Three types matter here,
+  // and the differences between them are exactly the two problems we've been chasing:
   //
-  //   "transient" — the category iOS uses for notification sounds. Our beep plays OVER other
-  //                 audio and merely DUCKS it (dips the volume) for the moment it's sounding,
-  //                 then that audio comes straight back on its own. This is what makes a
-  //                 podcast survive a beep instead of being killed outright.
-  //   "playback"  — the category a media player uses. It seizes the audio session, which
-  //                 stops other apps and leaves them stopped, but it does ignore the mute
-  //                 switch, so beeps are audible even on silent with nothing else playing.
+  //   "transient-solo" — the turn-by-turn navigation category. Briefly takes the audio
+  //                      exclusively, then HANDS IT BACK: the spec says the paused audio
+  //                      should resume when a transient-solo sound ends. Because it's a
+  //                      playback-class category (nav voice reaches you with the ringer off),
+  //                      it should also survive the mute switch. That combination — audible
+  //                      on silent AND the podcast comes back by itself — is the goal.
+  //   "transient"      — the notification-ping category. Gently ducks other audio, but being
+  //                      a notification sound it obeys the mute switch, so on silent it makes
+  //                      no sound at all. (This is why beeps went quiet on mute.)
+  //   "playback"       — the media-player category. Ignores the mute switch, but seizes the
+  //                      session indefinitely and never gives it back. (This is why the
+  //                      podcast stopped and never resumed.)
   //
-  // Left alone, Safari picks for itself and tends toward "playback" for an <audio> element
-  // carrying real sound — which is exactly why the podcast got stopped and never resumed.
+  // Left to itself, Safari picks "playback" for an <audio> element carrying real sound.
+  var AUDIO_SESSION_TYPES = { solo:"transient-solo", duck:"transient", takeover:"playback" };
   function applyAudioSessionType(){
     try{
       if(navigator.audioSession){
-        navigator.audioSession.type =
-          (config.audioShareMode === "takeover") ? "playback" : "transient";
+        navigator.audioSession.type = AUDIO_SESSION_TYPES[config.audioShareMode] || "transient-solo";
       }
     }catch(e){ /* older iOS / other browsers simply don't have this lever */ }
   }
@@ -3145,7 +3160,7 @@
   });
 
   var audioShareModeSelect = document.getElementById("audioShareModeSelect");
-  audioShareModeSelect.value = config.audioShareMode || "duck";
+  audioShareModeSelect.value = config.audioShareMode || "solo";
   audioShareModeSelect.addEventListener("change", function(e){
     config.audioShareMode = e.target.value;
     saveConfig(config);
