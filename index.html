@@ -283,7 +283,7 @@
       </select>
       <label style="display:flex; align-items:center; gap:10px; margin-top:12px; font-size:13px; color:var(--muted); cursor:pointer;">
         <input type="checkbox" id="soundThroughSilentToggle" style="width:20px; height:20px; flex-shrink:0; margin:0;">
-        Play beeps even if phone is on silent, or another app (music, podcasts, coaching audio, etc.) is playing and would otherwise mute them (may briefly pause that audio each beep)
+        <span><b>Always-audible beeps (recommended)</b><br>Beeps play no matter what — phone on silent, or a podcast/audiobook/coaching audio running in another app. Each beep briefly dips that other audio, which picks itself back up straight after. Turn this off only if you'd rather never interrupt your audio, and accept that beeps may be silent.</span>
       </label>
       <div class="row2" style="margin-top:12px; align-items:center;">
         <select id="quickTimerSound" style="flex:1;"></select>
@@ -610,7 +610,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-i</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-j</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -922,7 +922,8 @@
       defaultCapMin: 20,
       timerSound: "beep",
       timerDuration: 60,
-      soundThroughSilent: false,
+      soundThroughSilent: true,   // beeps you can always hear is the whole point of a gym timer
+      alwaysAudibleBeepsV1: true,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
       foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
@@ -1072,6 +1073,16 @@
       // 15-minute session. Trims down to 12 only if the lineup still looks exactly like that
       // original untouched 16-move default, so a lineup you've since customized on the Setup
       // tab (via Auto-Fill or manual edits) is left alone.
+      // One-time flip of the always-audible beep setting to ON. It used to default off to
+      // protect other apps' audio, but a gym timer whose beep you can't hear isn't a timer —
+      // and the beep path is now a real <audio> clip that gets past both the mute switch and
+      // another app holding the session. Flag-gated, so if you later turn it off yourself it
+      // stays off.
+      if(!cfg.alwaysAudibleBeepsV1){
+        cfg.soundThroughSilent = true;
+        cfg.alwaysAudibleBeepsV1 = true;
+        starterFoodsChanged = true;
+      }
       if(!cfg.day4CircuitSeededV2){
         if(cfg.days && cfg.days[4] && Array.isArray(cfg.days[4].exercises) && cfg.days[4].exercises.length === 16){
           var orig16Names = JSON.stringify(AB_CIRCUIT_EXERCISES.slice(0, 16));
@@ -2964,13 +2975,27 @@
     };
   });
 
-  // The one place that decides HOW a beep gets made. Web Audio when it's genuinely running,
-  // the <audio> fallback the moment it isn't — checked fresh at every single beep, so one
-  // interruption can never silence the rest of the workout. Note we don't wait on resume()
-  // here: it's asynchronous, and a beep that arrives late is no use during a work interval,
-  // so we make noise immediately by whichever path is alive right now and let the resume
-  // land in the background for next time.
+  // The one place that decides HOW a beep gets made.
+  //
+  // "Always audible" mode (the default) goes straight to the <audio> player every time and
+  // never touches Web Audio. That's deliberate: Web Audio has a blind spot that no code can
+  // see around — with the mute switch flipped, the context still reports itself as perfectly
+  // "running" while producing dead silence. There is no API anywhere that reveals the switch
+  // position, so a "try Web Audio first, fall back if it fails" scheme can't work: the
+  // failure is invisible. A real <audio> element carrying real sound is the only path that
+  // gets past the mute switch AND past another app holding the audio session, so when the
+  // goal is "I must hear this beep," we just use it unconditionally rather than being clever.
+  //
+  // With the toggle off, we prefer Web Audio while it's genuinely running (it mixes politely
+  // and won't blip your podcast), and drop to the <audio> player the instant it isn't —
+  // re-checked at every beep, so one interruption can't silence the rest of the workout.
   function emitTimerSound(key){
+    if(config.soundThroughSilent){
+      playFallbackBeep(key);
+      lastBeepPath = "always-audible player";
+      renderAudioStatus();
+      return;
+    }
     getAudioCtx();
     if(audioReady()){
       TIMER_SOUNDS[key].play();
@@ -2983,9 +3008,9 @@
   }
 
   function playTimerSound(){
-    // Only re-prime the silent-audio-element trick if the user opted in — that's the part
-    // that can briefly interrupt podcasts/music, so respect their choice from the toggle.
-    if(config.soundThroughSilent) replaySilentUnlock();
+    // No silent-clip priming needed here any more: in always-audible mode the beep itself is
+    // a real <audio> clip, which claims the audio session on its own. Playing a silent primer
+    // immediately before it would just be two elements racing for the same session.
     var key = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
     emitTimerSound(key);
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
@@ -2997,7 +3022,6 @@
   // as "done" next to the shorter beeps/chimes/buzzes — unless that's already the default,
   // in which case Chime steps in instead.
   function playFinishedSound(){
-    if(config.soundThroughSilent) replaySilentUnlock();
     var defaultKey = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
     var finishedKey = defaultKey === "bell" ? "chime" : "bell";
     emitTimerSound(finishedKey);
