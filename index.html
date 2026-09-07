@@ -287,17 +287,22 @@
         <option value="25">25 min</option>
         <option value="30">30 min</option>
       </select>
-      <div class="muted" style="font-size:13px; margin:14px 0 4px;">Beep during the workout</div>
+      <div class="muted" style="font-size:13px; margin:14px 0 4px;">🔥 Work starts</div>
       <div class="row2" style="align-items:center;">
         <select id="quickTimerSound" style="flex:1;"></select>
         <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
       </div>
-      <div class="muted" style="font-size:13px; margin:14px 0 4px;">Workout finished — last round done</div>
+      <div class="muted" style="font-size:13px; margin:14px 0 4px;">😮‍💨 Rest starts</div>
+      <div class="row2" style="align-items:center;">
+        <select id="restSoundSelect" style="flex:1;"></select>
+        <button class="secondary" id="restSoundTestBtn" style="margin-top:0;">🔊 Test</button>
+      </div>
+      <div class="muted" style="font-size:13px; margin:14px 0 4px;">🏁 Workout finished — last round done</div>
       <div class="row2" style="align-items:center;">
         <select id="finishSoundSelect" style="flex:1;"></select>
         <button class="secondary" id="finishSoundTestBtn" style="margin-top:0;">🔊 Test</button>
       </div>
-      <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">Pick something clearly different from the beep above, so the end of the last round is unmistakable.</p>
+      <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">Three clearly different sounds means you can tell go from stop from done without looking at your phone. The work sound is also used for Day 2's five-minute markers, the Quick Timer, and hold timers.</p>
       <div style="margin-top:14px;">
         <div class="muted" style="font-size:13px; margin-bottom:6px;"><b>Beep behaviour</b></div>
         <select id="audioShareModeSelect" style="width:100%;">
@@ -630,7 +635,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-s</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-u</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -957,8 +962,11 @@
     return {
       currentDay: 1,
       defaultCapMin: 20,
-      timerSound: "beep",
-      finishSound: "bell",   // deliberately different from the mid-workout beep
+      // Three roles, three deliberately different sounds — go / stop / done by ear alone.
+      timerSound:  "triplebeep",   // work starts (also the general-purpose beep)
+      restSound:   "woodblock3",   // rest starts
+      finishSound: "levelup3",     // whole workout done
+      soundRolesV1: true,
       timerDuration: 60,
       // Field-tested on iPhone: "solo" and "duck" are BOTH silenced by the mute switch, and
       // only "takeover" survives it — but takeover stops other audio for good. "duck" is the
@@ -1038,8 +1046,9 @@
       }
       if(!cfg.currentDay) cfg.currentDay = 1;
       if(!cfg.defaultCapMin) cfg.defaultCapMin = 20;
-      if(!cfg.timerSound) cfg.timerSound = "beep";
-      if(!cfg.finishSound) cfg.finishSound = "bell";
+      if(!cfg.timerSound) cfg.timerSound = "triplebeep";
+      if(!cfg.restSound) cfg.restSound = "woodblock3";
+      if(!cfg.finishSound) cfg.finishSound = "levelup3";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
       if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "duck";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
@@ -1124,6 +1133,17 @@
       // Testing on a real iPhone settled this: the nav-style category is silenced by the mute
       // switch too, so it was no better than the ping category it replaced. Move anyone left
       // on it back to "duck", the one mode where other audio actually survives a workout.
+      // One-time move to the three-role sound setup: work / rest / finished, each with its own
+      // sound, so an interval day is readable by ear. Anyone still on the original plain tones
+      // gets the new set; a sound you've deliberately chosen yourself is left alone.
+      if(!cfg.soundRolesV1){
+        var stockOld = ["beep","chime","buzz","bell"];
+        if(stockOld.indexOf(cfg.timerSound) !== -1) cfg.timerSound = "triplebeep";
+        if(!cfg.restSound) cfg.restSound = "woodblock3";
+        if(stockOld.indexOf(cfg.finishSound) !== -1) cfg.finishSound = "levelup3";
+        cfg.soundRolesV1 = true;
+        starterFoodsChanged = true;
+      }
       if(!cfg.audioShareModeV3){
         if(cfg.audioShareMode === "solo") cfg.audioShareMode = "duck";
         cfg.audioShareModeV3 = true;
@@ -2417,7 +2437,7 @@
       if(iv.phase === "rest"){
         iv.phase = "work";
         iv.phaseEndsAt += iv.workSec * 1000;
-        playTimerSound();
+        playTimerSound();      // rest just ended -> WORK is starting
       } else {
         // A work interval just finished — log it as a completed set. Cloned rather than
         // pushed by reference: circuit days mutate session.current[0].name for the next
@@ -2438,7 +2458,7 @@
               session.current[0].name = exList[(iv.setIndex - 1) % exList.length].name;
             }
           }
-          playTimerSound();
+          playRestSound();     // work just ended -> REST is starting
         }
       }
       msLeft = iv.finished ? 0 : (iv.phaseEndsAt - Date.now());
@@ -2684,9 +2704,13 @@
     if(totalSec >= capSec){
       warn.textContent = "⏰ Time cap reached — wrap up!";
       // Ding once when the cap is hit, but never pause/stop anything — you might be
-      // mid-round and want to finish it out. Uses a sound distinct from the default timer
-      // sound so it doesn't blend in with the Day 2 5-minute markers below.
-      if(!session.capAlertPlayed){
+      // mid-round and want to finish it out.
+      //
+      // Skipped entirely on interval/circuit days: their cap is *derived* from the set count
+      // (12 sets x 75s = exactly the 15-minute cap), so the cap and the final set land at the
+      // same instant, and updateIntervalDisplay already plays the finished sound there. Left
+      // in, you'd hear the "workout done" sound twice, back to back.
+      if(!session.capAlertPlayed && session.dayType !== "interval" && session.dayType !== "circuit"){
         session.capAlertPlayed = true;
         persistSession();
         playFinishedSound();
@@ -2707,7 +2731,9 @@
     // the beep forever if the page was asleep at that instant), this checks for ANY mark
     // that's already due and hasn't played yet, and catches it up the next time the page
     // gets a chance to run — which is usually the moment you glance back at your phone.
-    if(session.dayType === "timed"){
+    // Once the cap is reached the workout is over as far as sound goes — the finished sound
+    // has had its moment and a stray five-minute marker chasing it just muddles the message.
+    if(session.dayType === "timed" && totalSec < capSec){
       var minuteMark = Math.floor(totalSec/60);
       session.fiveMinMarksPlayed = session.fiveMinMarksPlayed || [];
       var dueMark = null;
@@ -3110,6 +3136,14 @@
     renderAudioStatus();
   }
 
+  // Rest getting its own sound is the point of the whole three-sound arrangement: on an
+  // interval day you can tell "go" from "stop" from "done" purely by ear.
+  function playRestSound(){
+    var key = config.restSound && TIMER_SOUNDS[config.restSound] ? config.restSound : "woodblock3";
+    emitTimerSound(key);
+    if(navigator.vibrate) navigator.vibrate([120,80,120]);
+  }
+
   function playTimerSound(){
     // No silent-clip priming needed here any more: in always-audible mode the beep itself is
     // a real <audio> clip, which claims the audio session on its own. Playing a silent primer
@@ -3141,8 +3175,9 @@
     sel.value = (selected && TIMER_SOUNDS[selected]) ? selected : fallback;
   }
   function populateTimerSoundSelect(){
-    fillSoundSelect("quickTimerSound", config.timerSound, "beep");
-    fillSoundSelect("finishSoundSelect", config.finishSound, "bell");
+    fillSoundSelect("quickTimerSound", config.timerSound, "triplebeep");
+    fillSoundSelect("restSoundSelect", config.restSound, "woodblock3");
+    fillSoundSelect("finishSoundSelect", config.finishSound, "levelup3");
   }
 
   var quickTimer = {
@@ -3234,6 +3269,16 @@
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
     ensureBeepPermission();
     playTimerSound();
+  });
+
+  document.getElementById("restSoundSelect").addEventListener("change", function(e){
+    config.restSound = e.target.value;
+    saveConfig(config);
+  });
+
+  document.getElementById("restSoundTestBtn").addEventListener("click", function(){
+    ensureBeepPermission();
+    playRestSound();
   });
 
   document.getElementById("finishSoundSelect").addEventListener("change", function(e){
