@@ -105,7 +105,7 @@
   .cap-warn{color:var(--danger);}
   .round-badge{
     display:inline-block; background:var(--card2); border:1px solid var(--border); border-radius:999px;
-    padding:6px 14px; font-size:14px; font-weight:700; color:var(--blue);
+    padding:9px 18px; font-size:18px; font-weight:700; color:var(--blue);
   }
   .center{text-align:center;}
   .exercise-log-row{
@@ -225,6 +225,9 @@
     <div id="prepBlock" class="card" style="display:none; text-align:center;">
       <div class="label" style="font-size:14px; color:var(--muted); text-transform:uppercase; letter-spacing:0.8px;">Get Ready!</div>
       <div class="clock" id="prepCountdownClock" style="font-size:64px; font-weight:800; margin:6px 0;">30</div>
+      <div id="prepMuteReminder" style="display:none; background:rgba(255,176,32,0.12); border:1px solid var(--accent2); border-radius:10px; padding:10px 12px; margin:10px 0 12px; font-size:14px; font-weight:600; color:var(--accent2); text-align:left;">
+        🔔 Flip the mute switch <b>OFF</b> now — beeps won't sound while it's on.
+      </div>
       <div class="row2">
         <button class="secondary" id="prepSkipBtn" style="margin-top:0;">⏭ Skip</button>
         <button class="secondary danger" id="prepCancelBtn" style="margin-top:0;">✕ Cancel</button>
@@ -255,6 +258,9 @@
     </div>
 
     <div id="finishIntensityBlock" class="card" style="display:none; text-align:center;">
+      <div id="finishMuteReminder" style="display:none; background:rgba(77,163,255,0.12); border:1px solid var(--blue); border-radius:10px; padding:10px 12px; margin:0 0 14px; font-size:14px; font-weight:600; color:var(--blue); text-align:left;">
+        🔕 Workout done — flip the mute switch back <b>ON</b> if you want your phone quiet again.
+      </div>
       <h2>How did that feel?</h2>
       <p class="muted" style="font-size:13px; margin-top:0;">Used for a rough calorie estimate &mdash; pick whichever's closest.</p>
       <div class="row2">
@@ -281,10 +287,17 @@
         <option value="25">25 min</option>
         <option value="30">30 min</option>
       </select>
-      <div class="row2" style="margin-top:12px; align-items:center;">
+      <div class="muted" style="font-size:13px; margin:14px 0 4px;">Beep during the workout</div>
+      <div class="row2" style="align-items:center;">
         <select id="quickTimerSound" style="flex:1;"></select>
         <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
       </div>
+      <div class="muted" style="font-size:13px; margin:14px 0 4px;">Workout finished — last round done</div>
+      <div class="row2" style="align-items:center;">
+        <select id="finishSoundSelect" style="flex:1;"></select>
+        <button class="secondary" id="finishSoundTestBtn" style="margin-top:0;">🔊 Test</button>
+      </div>
+      <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">Pick something clearly different from the beep above, so the end of the last round is unmistakable.</p>
       <div style="margin-top:14px;">
         <div class="muted" style="font-size:13px; margin-bottom:6px;"><b>Beep behaviour</b></div>
         <select id="audioShareModeSelect" style="width:100%;">
@@ -617,7 +630,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-o</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-q</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -928,6 +941,7 @@
       currentDay: 1,
       defaultCapMin: 20,
       timerSound: "beep",
+      finishSound: "bell",   // deliberately different from the mid-workout beep
       timerDuration: 60,
       // Field-tested on iPhone: "solo" and "duck" are BOTH silenced by the mute switch, and
       // only "takeover" survives it — but takeover stops other audio for good. "duck" is the
@@ -1008,6 +1022,7 @@
       if(!cfg.currentDay) cfg.currentDay = 1;
       if(!cfg.defaultCapMin) cfg.defaultCapMin = 20;
       if(!cfg.timerSound) cfg.timerSound = "beep";
+      if(!cfg.finishSound) cfg.finishSound = "bell";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
       if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "duck";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
@@ -2291,10 +2306,14 @@
     // A while loop (not just "if") covers the rare case of the tab being backgrounded
     // through more than one phase boundary at once.
     while(msLeft <= 0 && !iv.finished){
-      playTimerSound();
+      // The sound is chosen AFTER working out what this transition means, so the very last
+      // set ends on the distinct "workout finished" sound instead of yet another identical
+      // beep. (It used to fire at the top of the loop, before we knew — which is why Day 4
+      // and Day 6 just beeped normally and then stopped, with nothing marking the end.)
       if(iv.phase === "rest"){
         iv.phase = "work";
         iv.phaseEndsAt += iv.workSec * 1000;
+        playTimerSound();
       } else {
         // A work interval just finished — log it as a completed set. Cloned rather than
         // pushed by reference: circuit days mutate session.current[0].name for the next
@@ -2304,6 +2323,7 @@
         if(iv.setIndex >= iv.totalSets){
           iv.finished = true;
           iv.phase = "done";
+          playFinishedSound();
         } else {
           iv.setIndex += 1;
           iv.phase = "rest";
@@ -2314,6 +2334,7 @@
               session.current[0].name = exList[(iv.setIndex - 1) % exList.length].name;
             }
           }
+          playTimerSound();
         }
       }
       msLeft = iv.finished ? 0 : (iv.phaseEndsAt - Date.now());
@@ -2332,6 +2353,7 @@
       updateIntervalTimelineProgress();
       clearInterval(tickInterval);
       document.getElementById("activeBlock").style.display = "none";
+      renderMuteReminders();
       document.getElementById("finishIntensityBlock").style.display = "block";
       return;
     }
@@ -2360,6 +2382,7 @@
     // it — and iOS refuses to unlock audio from there. Tapping Start is a real gesture, so
     // this is the last moment we're guaranteed to have one.
     ensureBeepPermission();
+    renderMuteReminders();
     prepState.remaining = PREP_SECONDS;
     document.getElementById("idleBlock").style.display = "none";
     document.getElementById("prepBlock").style.display = "block";
@@ -2410,6 +2433,7 @@
 
   document.getElementById("finishWorkoutBtn").addEventListener("click", function(){
     document.getElementById("activeBlock").style.display = "none";
+    renderMuteReminders();
     document.getElementById("finishIntensityBlock").style.display = "block";
   });
 
@@ -2805,6 +2829,20 @@
   // possible moment — the tap that starts a workout (or the Test button) — instead of firing
   // on any old tap. Browsing the app, flipping tabs, editing exercises and switching away and
   // back now never touch the sound system at all, which is what lets a podcast survive.
+  // The mute-switch reminders are only truthful in the modes that actually obey the switch.
+  // In "take over" mode beeps come through regardless, so nagging about it there would be
+  // wrong — the banners simply don't appear.
+  function muteSwitchMatters(){
+    return (config.audioShareMode || "duck") !== "takeover";
+  }
+  function renderMuteReminders(){
+    var show = muteSwitchMatters() ? "block" : "none";
+    var a = document.getElementById("prepMuteReminder");
+    var b = document.getElementById("finishMuteReminder");
+    if(a) a.style.display = show;
+    if(b) b.style.display = show;
+  }
+
   var beepPoolPrimed = false;
   function ensureBeepPermission(){
     applyAudioSessionType();
@@ -2886,20 +2924,18 @@
     if(navigator.vibrate) navigator.vibrate([200,100,200]);
   }
 
-  // Plays a sound picked to be different from whatever the user's default timer sound is,
-  // so "time's up" never sounds identical to a mid-workout checkpoint beep (e.g. the Day 2
-  // 5-minute markers below). Bell Ring is the pick — its long resonant tone reads clearly
-  // as "done" next to the shorter beeps/chimes/buzzes — unless that's already the default,
-  // in which case Chime steps in instead.
+  // The "that's the whole workout done" sound — your own choice now, rather than the app
+  // quietly picking one for you. Defaults to Bell Ring, whose long resonant tone reads as
+  // an ending next to the shorter mid-workout beeps.
   function playFinishedSound(){
-    var defaultKey = config.timerSound && TIMER_SOUNDS[config.timerSound] ? config.timerSound : "beep";
-    var finishedKey = defaultKey === "bell" ? "chime" : "bell";
-    emitTimerSound(finishedKey);
+    var key = config.finishSound && TIMER_SOUNDS[config.finishSound] ? config.finishSound : "bell";
+    emitTimerSound(key);
     if(navigator.vibrate) navigator.vibrate([200,100,200,100,200]);
   }
 
-  function populateTimerSoundSelect(){
-    var sel = document.getElementById("quickTimerSound");
+  function fillSoundSelect(id, selected, fallback){
+    var sel = document.getElementById(id);
+    if(!sel) return;
     sel.innerHTML = "";
     Object.keys(TIMER_SOUNDS).forEach(function(key){
       var opt = document.createElement("option");
@@ -2907,7 +2943,11 @@
       opt.textContent = TIMER_SOUNDS[key].label;
       sel.appendChild(opt);
     });
-    sel.value = config.timerSound || "beep";
+    sel.value = (selected && TIMER_SOUNDS[selected]) ? selected : fallback;
+  }
+  function populateTimerSoundSelect(){
+    fillSoundSelect("quickTimerSound", config.timerSound, "beep");
+    fillSoundSelect("finishSoundSelect", config.finishSound, "bell");
   }
 
   var quickTimer = {
@@ -2985,6 +3025,7 @@
     config.audioShareMode = e.target.value;
     saveConfig(config);
     applyAudioSessionType();
+    renderMuteReminders();
   });
 
   document.getElementById("quickTimerSound").addEventListener("change", function(e){
@@ -2998,6 +3039,16 @@
   document.getElementById("quickTimerTestSoundBtn").addEventListener("click", function(){
     ensureBeepPermission();
     playTimerSound();
+  });
+
+  document.getElementById("finishSoundSelect").addEventListener("change", function(e){
+    config.finishSound = e.target.value;
+    saveConfig(config);
+  });
+
+  document.getElementById("finishSoundTestBtn").addEventListener("click", function(){
+    ensureBeepPermission();
+    playFinishedSound();
   });
 
   function quickTimerTick(){
