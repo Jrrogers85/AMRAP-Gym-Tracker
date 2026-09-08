@@ -522,6 +522,10 @@
         <p class="muted" style="font-size:12px; margin:10px 0 0;">Scan the barcode on the package, or search by name (e.g. "Little Debbie Oatmeal Creme Pie"). Either way it just pre-fills the form below — always yours to edit before you save it.</p>
         <button class="secondary" id="foodScanBtn" style="margin-top:8px;">📷 Scan a Barcode</button>
         <div class="row2" style="margin-top:8px;">
+          <input type="text" id="barcodeManualInput" inputmode="numeric" autocomplete="off" placeholder="…or type the barcode digits">
+          <button class="secondary" id="barcodeManualBtn" style="margin-top:0;">Look Up</button>
+        </div>
+        <div class="row2" style="margin-top:8px;">
           <input type="text" id="foodSearchInput" placeholder="Search a food...">
           <button class="secondary" id="foodSearchBtn" style="margin-top:0;">🔎 Search</button>
         </div>
@@ -653,16 +657,18 @@
   <div style="padding:calc(env(safe-area-inset-top) + 12px) 16px 10px; text-align:center; color:var(--text); font-size:15px; font-weight:700;">Point at the barcode</div>
   <div style="position:relative; flex:1; min-height:0; overflow:hidden;">
     <video id="scannerVideo" playsinline muted autoplay style="width:100%; height:100%; object-fit:cover;"></video>
-    <!-- Aiming box: purely visual, the decoder reads the whole frame. -->
-    <div style="position:absolute; left:10%; right:10%; top:50%; transform:translateY(-50%); height:120px; border:2px solid var(--accent); border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
+    <!-- The decoder reads THIS rectangle at full sensor resolution, so what you frame here
+         really is what gets analysed. Its on-screen size is measured at scan time. -->
+    <div id="scannerBox" style="position:absolute; left:8%; width:84%; top:50%; transform:translateY(-50%); height:150px; border:2px solid var(--accent); border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
   </div>
   <div style="padding:12px 16px calc(env(safe-area-inset-bottom) + 16px); background:var(--bg);">
-    <p class="muted" id="scannerStatus" style="font-size:13px; margin:0 0 10px; text-align:center;">Starting camera…</p>
+    <p class="muted" id="scannerStatus" style="font-size:13px; margin:0 0 6px; text-align:center;">Starting camera…</p>
+    <p class="muted" id="scannerDiag" style="font-size:11px; margin:0 0 10px; text-align:center; opacity:0.7;"></p>
     <button class="secondary danger" id="scannerCancelBtn" style="width:100%; margin-top:0;">Cancel</button>
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-e</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-f</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -4773,29 +4779,51 @@
   }
 
   var scannerReader = null;      // ZXing reader, kept so we can reset() it
-  var scannerStream = null;      // native-path MediaStream, kept so we can stop its tracks
-  var scannerRaf = null;         // native-path loop handle
+  var scannerStream = null;      // MediaStream we opened, kept so we can stop its tracks
+  var scannerRaf = null;         // decode-loop handle
   var scannerActive = false;
+  var scannerCanvas = null, scannerCtx = null;
+  var scannerFrames = 0;         // how many frames we've actually analysed
+  var scannerDiagParts = { camera:"", res:"", engine:"" };
 
   function setScannerStatus(msg){
     var el = document.getElementById("scannerStatus");
     if(el) el.textContent = msg;
   }
+  // The line that turns "nothing is happening" into something diagnosable: which camera,
+  // at what resolution, through which decoder, and whether frames are actually flowing.
+  function renderScannerDiag(){
+    var el = document.getElementById("scannerDiag");
+    if(!el) return;
+    var bits = [];
+    if(scannerDiagParts.camera) bits.push(scannerDiagParts.camera);
+    if(scannerDiagParts.res) bits.push(scannerDiagParts.res);
+    if(scannerDiagParts.engine) bits.push(scannerDiagParts.engine);
+    if(scannerFrames) bits.push(scannerFrames + " frames");
+    el.textContent = bits.join(" · ");
+  }
+
+  function stopTracks(stream){
+    if(stream && stream.getTracks){
+      stream.getTracks().forEach(function(t){ try{ t.stop(); }catch(e){} });
+    }
+  }
 
   function stopScanner(){
     scannerActive = false;
+    scannerFrames = 0;
+    scannerDiagParts = { camera:"", res:"", engine:"" };
+    renderScannerDiag();
     if(scannerRaf){ clearTimeout(scannerRaf); scannerRaf = null; }
     try{ if(scannerReader && scannerReader.reset) scannerReader.reset(); }catch(e){}
     scannerReader = null;
     var video = document.getElementById("scannerVideo");
     // Stop every track we can reach. Leaving one live keeps the camera light on, which
     // looks (rightly) alarming.
-    [scannerStream, video && video.srcObject].forEach(function(stream){
-      if(stream && stream.getTracks){
-        stream.getTracks().forEach(function(t){ try{ t.stop(); }catch(e){} });
-      }
-    });
+    stopTracks(scannerStream);
+    stopTracks(video && video.srcObject);
     scannerStream = null;
+    nativeDetector = null;
     if(video){ try{ video.srcObject = null; }catch(e){} }
     document.getElementById("scannerOverlay").style.display = "none";
   }
@@ -4819,53 +4847,209 @@
     });
   }
 
-  var CAMERA_CONSTRAINTS = { video: { facingMode: { ideal: "environment" } }, audio: false };
+  // Tried in order. "exact" genuinely forces the rear camera; "ideal" is only a preference,
+  // and a phone that can't satisfy it will hand back the FRONT camera without complaint —
+  // which looks exactly like a scanner that doesn't work. The high resolution matters just
+  // as much: a barcode's bars are a few pixels wide at 640x480 and simply won't resolve.
+  var CAMERA_CONSTRAINTS_CHAIN = [
+    { video: { facingMode: { exact: "environment" }, width:{ideal:1920}, height:{ideal:1080} }, audio:false },
+    { video: { facingMode: { ideal: "environment" }, width:{ideal:1920}, height:{ideal:1080} }, audio:false },
+    { video: { facingMode: { ideal: "environment" } }, audio:false },
+    { video: true, audio:false }
+  ];
+  function getCameraStream(i){
+    i = i || 0;
+    if(i >= CAMERA_CONSTRAINTS_CHAIN.length) return Promise.reject(new Error("No camera would open."));
+    return navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS_CHAIN[i]).catch(function(err){
+      // A permission denial is final — retrying just re-fails. Anything else means these
+      // particular constraints were too strict, so loosen them and try again.
+      if(err && (err.name === "NotAllowedError" || err.name === "SecurityError")) throw err;
+      return getCameraStream(i + 1);
+    });
+  }
+
+  function describeCamera(stream, video){
+    var label = "camera", facing = "";
+    try{
+      var track = stream.getVideoTracks ? stream.getVideoTracks()[0] : null;
+      if(track){
+        var s = track.getSettings ? track.getSettings() : {};
+        facing = s.facingMode || "";
+        label = track.label || "camera";
+      }
+    }catch(e){}
+    scannerDiagParts.camera = facing === "environment" ? "Rear camera"
+      : facing === "user" ? "FRONT camera (!)"
+      : (label.length > 24 ? label.slice(0, 24) + "…" : label);
+    scannerDiagParts.res = (video.videoWidth || "?") + "×" + (video.videoHeight || "?");
+    renderScannerDiag();
+  }
+
+  // iOS reports videoWidth as 0 until the first frame actually arrives. Decoding before
+  // then reads a blank canvas forever, so wait for real pixels (with a ceiling, so a
+  // camera that never delivers reports that instead of hanging silently).
+  function waitForVideoReady(video){
+    return new Promise(function(resolve, reject){
+      var waited = 0;
+      (function poll(){
+        if(!scannerActive) return resolve();
+        if(video.videoWidth > 0 && video.videoHeight > 0) return resolve();
+        waited += 100;
+        if(waited > 8000) return reject(new Error("The camera opened but never sent a picture."));
+        setTimeout(poll, 100);
+      })();
+    });
+  }
+
+  // Maps the on-screen aiming box back to a rectangle in the camera's own pixels.
+  // The video is drawn with object-fit:cover, so the picture is scaled up and centre-cropped
+  // to fill the element — meaning screen coordinates are NOT source coordinates, and cropping
+  // naively by percentage would analyse the wrong part of the frame.
+  function scanBoxSourceRect(video){
+    var vw = video.videoWidth, vh = video.videoHeight;
+    var dw = video.clientWidth || vw, dh = video.clientHeight || vh;
+    if(!vw || !vh || !dw || !dh) return null;
+    var scale = Math.max(dw / vw, dh / vh);          // cover = scale to the LARGER ratio
+    var offX = (vw * scale - dw) / 2;                 // pixels trimmed off each side
+    var offY = (vh * scale - dh) / 2;
+    var box = document.getElementById("scannerBox");
+    var bw = (box && box.offsetWidth) || dw * 0.84;
+    var bh = (box && box.offsetHeight) || 150;
+    var bx = (dw - bw) / 2, by = (dh - bh) / 2;       // the box is centred in the element
+    var rect = {
+      x: (bx + offX) / scale,
+      y: (by + offY) / scale,
+      w: bw / scale,
+      h: bh / scale
+    };
+    // Clamp into the frame — a very tall/short viewport can push the box past an edge.
+    rect.x = Math.max(0, Math.min(rect.x, vw - 1));
+    rect.y = Math.max(0, Math.min(rect.y, vh - 1));
+    rect.w = Math.max(1, Math.min(rect.w, vw - rect.x));
+    rect.h = Math.max(1, Math.min(rect.h, vh - rect.y));
+    return rect;
+  }
+
+  function drawFrame(video, cropped){
+    var vw = video.videoWidth, vh = video.videoHeight;
+    if(!vw || !vh) return false;
+    var rect = cropped ? scanBoxSourceRect(video) : null;
+    if(cropped && !rect) return false;
+    if(!rect) rect = { x:0, y:0, w:vw, h:vh };
+    scannerCanvas.width = Math.max(1, Math.round(rect.w));
+    scannerCanvas.height = Math.max(1, Math.round(rect.h));
+    scannerCtx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, scannerCanvas.width, scannerCanvas.height);
+    return true;
+  }
+
+  var nativeDetector = null;
+
+  function decodeCurrentCanvas(){
+    if(nativeDetector){
+      return nativeDetector.detect(scannerCanvas).then(function(codes){
+        return (codes && codes.length && codes[0].rawValue) || null;
+      }).catch(function(){ return null; });
+    }
+    if(scannerReader && typeof scannerReader.decodeFromCanvas === "function"){
+      try{
+        var r = scannerReader.decodeFromCanvas(scannerCanvas);
+        return Promise.resolve(r ? (r.getText ? r.getText() : String(r)) : null);
+      }catch(e){
+        // NotFoundException on the vast majority of frames — that's the normal "nothing
+        // in view yet" answer, not a fault.
+        return Promise.resolve(null);
+      }
+    }
+    return Promise.resolve(null);
+  }
+
+  function runDecodeLoop(video){
+    var croppedTurn = true;
+    (function loop(){
+      if(!scannerActive) return;
+      // Alternate between the tight crop (best detail, needs the box maths to be right)
+      // and the whole frame (lower detail, but immune to any framing error). Whichever
+      // is going to work, one of them will.
+      var drew = false;
+      try{ drew = drawFrame(video, croppedTurn); }catch(e){ drew = false; }
+      croppedTurn = !croppedTurn;
+      if(!drew){
+        scannerRaf = setTimeout(loop, 150);
+        return;
+      }
+      scannerFrames++;
+      renderScannerDiag(); // every frame: a counter that visibly moves is the whole point
+      decodeCurrentCanvas().then(function(code){
+        if(!scannerActive) return;
+        if(code){ onBarcodeFound(code); return; }
+        scannerRaf = setTimeout(loop, 120);
+      });
+    })();
+  }
 
   function startScanning(){
     var video = document.getElementById("scannerVideo");
-    // Native path: no download, decodes in the browser engine.
-    if(window.BarcodeDetector){
-      var detector = new window.BarcodeDetector({
-        formats: ["ean_13","ean_8","upc_a","upc_e","code_128"]
-      });
-      return navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS).then(function(stream){
-        scannerStream = stream;
-        video.srcObject = stream;
-        var play = video.play();
-        if(play && play.catch) play.catch(function(){});
-        setScannerStatus("Hold the barcode inside the box.");
-        var tick = function(){
-          if(!scannerActive) return;
-          detector.detect(video).then(function(codes){
-            if(!scannerActive) return;
-            if(codes && codes.length && codes[0].rawValue){ onBarcodeFound(codes[0].rawValue); return; }
-            scannerRaf = setTimeout(tick, 250);
-          }).catch(function(){
-            // A frame that isn't ready yet throws; that's expected, so just try again.
-            if(scannerActive) scannerRaf = setTimeout(tick, 250);
-          });
-        };
-        tick();
-      });
+    scannerFrames = 0;
+    if(!scannerCanvas){
+      scannerCanvas = document.createElement("canvas");
+      scannerCtx = scannerCanvas.getContext("2d", { willReadFrequently: true });
     }
-    // ZXing path (this is the one iPhones take).
-    setScannerStatus("Loading the barcode reader…");
-    return loadZXing().then(function(ZXing){
-      var hints = new Map();
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
-        ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.CODE_128
-      ]);
-      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-      scannerReader = new ZXing.BrowserMultiFormatReader(hints);
-      if(!scannerActive) return; // cancelled while the library was downloading
-      setScannerStatus("Hold the barcode inside the box.");
-      return scannerReader.decodeFromConstraints(CAMERA_CONSTRAINTS, video, function(result){
-        // Called on EVERY frame — with a result only when something decoded. The
-        // second argument is a NotFoundException on the other 99% of frames, which is
-        // normal operation, not an error worth surfacing.
-        if(result && scannerActive) onBarcodeFound(result.getText ? result.getText() : String(result));
+    if(!scannerCtx) return Promise.reject(new Error("This browser can't process camera frames."));
+
+    return getCameraStream(0).then(function(stream){
+      if(!scannerActive){ // cancelled while the permission prompt was up
+        stream.getTracks().forEach(function(t){ try{ t.stop(); }catch(e){} });
+        return;
+      }
+      scannerStream = stream;
+      video.setAttribute("playsinline", "");
+      video.srcObject = stream;
+      var p = video.play();
+      if(p && p.catch) p.catch(function(){});
+      setScannerStatus("Focusing…");
+      return waitForVideoReady(video).then(function(){
+        if(!scannerActive) return;
+        describeCamera(stream, video);
+        // Prefer the browser's own decoder where it exists (Android Chrome): no download,
+        // and it's markedly better at awkward angles than a JS implementation.
+        if(window.BarcodeDetector){
+          nativeDetector = new window.BarcodeDetector({
+            formats: ["ean_13","ean_8","upc_a","upc_e","code_128"]
+          });
+          scannerDiagParts.engine = "built-in reader";
+          setScannerStatus("Fill the box with the barcode, about 6–8 inches away.");
+          renderScannerDiag();
+          runDecodeLoop(video);
+          return;
+        }
+        nativeDetector = null;
+        setScannerStatus("Loading the barcode reader…");
+        return loadZXing().then(function(ZXing){
+          if(!scannerActive) return;
+          var hints = new Map();
+          hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+            ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+            ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
+            ZXing.BarcodeFormat.CODE_128
+          ]);
+          hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+          scannerReader = new ZXing.BrowserMultiFormatReader(hints);
+          if(typeof scannerReader.decodeFromCanvas !== "function"){
+            // This build of the library doesn't expose per-frame decoding, so hand the
+            // camera back and let it drive its own loop instead.
+            scannerDiagParts.engine = "ZXing (library loop)";
+            renderScannerDiag();
+            setScannerStatus("Fill the box with the barcode, about 6–8 inches away.");
+            stopTracks(scannerStream); scannerStream = null; video.srcObject = null;
+            return scannerReader.decodeFromConstraints(CAMERA_CONSTRAINTS_CHAIN[1], video, function(result){
+              if(result && scannerActive) onBarcodeFound(result.getText ? result.getText() : String(result));
+            });
+          }
+          scannerDiagParts.engine = "ZXing";
+          renderScannerDiag();
+          setScannerStatus("Fill the box with the barcode, about 6–8 inches away.");
+          runDecodeLoop(video);
+        });
       });
     });
   }
@@ -4922,6 +5106,25 @@
     }
     openScanner();
   });
+  // Typing the digits printed under the barcode runs the exact same lookup the camera
+  // does — so a camera that won't cooperate is an inconvenience, never a dead end.
+  function runManualBarcode(){
+    var input = document.getElementById("barcodeManualInput");
+    var digits = (input.value || "").replace(/\D/g, "");
+    if(!digits){
+      document.getElementById("foodSearchStatus").textContent =
+        "Type the number printed under the barcode (usually 12 or 13 digits).";
+      return;
+    }
+    input.value = "";
+    try{ input.blur(); }catch(e){}
+    handleScannedBarcode(digits);
+  }
+  document.getElementById("barcodeManualBtn").addEventListener("click", runManualBarcode);
+  document.getElementById("barcodeManualInput").addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); runManualBarcode(); }
+  });
+
   document.getElementById("scannerCancelBtn").addEventListener("click", stopScanner);
   // Backgrounding the app should release the camera rather than leave it held open —
   // both for the indicator light and because iOS may revoke the stream anyway, leaving a
@@ -4931,7 +5134,7 @@
   });
 
   function resetAddFoodForm(){
-    ["foodSearchInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput",
+    ["foodSearchInput","barcodeManualInput","foodNameInput","foodCaloriesInput","foodProteinInput","foodCarbsInput","foodFatInput",
      "foodUnitInput","foodUnitServingInput","foodUnitCaloriesInput","foodUnitProteinInput","foodUnitCarbsInput","foodUnitFatInput",
      "foodWaterOzInput"].forEach(function(id){
       document.getElementById(id).value = "";
