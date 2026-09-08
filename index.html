@@ -199,9 +199,10 @@
 
     <div id="idleBlock" class="card">
       <select class="day-banner" id="workoutDayBanner"></select>
+      <div class="day-nav-label" id="workoutPositionLabel" style="margin:6px 0 10px;">1 of 7</div>
       <div class="row2">
-        <button class="secondary" id="prevDayBtnWorkout" style="margin-top:0;">◀ Prev Day</button>
-        <button class="secondary" id="nextDayBtnWorkout" style="margin-top:0;">Next Day ▶</button>
+        <button class="secondary" id="prevDayBtnWorkout" style="margin-top:0;">◀ Prev</button>
+        <button class="secondary" id="nextDayBtnWorkout" style="margin-top:0;">Next ▶</button>
       </div>
       <div class="idle-hint">Set up today's exercises in the <b>Setup</b> tab, choose a time cap, then start.</div>
       <div class="row2" id="startRow">
@@ -637,7 +638,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-w</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-a</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -671,15 +672,31 @@
     "Single-arm Row", "DB Pullover", "Face Pull", "Band Pull-apart",
     "Reverse Fly", "Plank Row", "Chin-up", "Lat Pulldown"
   ];
-  var LEGS_EXERCISES = [
-    "Goblet Squat", "Reverse Lunge", "Bulgarian Split Squat", "Romanian Deadlift",
-    "Step-up", "Kettlebell Swing", "Walking Lunge", "Sumo Squat",
-    "Single-leg RDL", "Curtsy Lunge", "Box Jump", "Wall Sit"
+  // Legs split the way most coaches actually carve up lower body: knee-dominant work (quads
+  // driving) against hip-dominant work (posterior chain — glutes and hamstrings). They're
+  // genuinely different muscles, which is why half a day was never enough for either.
+  var LEGS_PUSH_EXERCISES = [
+    "Goblet Squat", "Reverse Lunge", "Bulgarian Split Squat", "Walking Lunge",
+    "Step-up", "Sumo Squat", "Curtsy Lunge", "Front Squat",
+    "Box Jump", "Wall Sit", "Leg Press", "Split Squat"
   ];
-  var SHOULDER_EXERCISES = [
-    "DB Shoulder Press", "Lateral Raise", "Front Raise", "Arnold Press",
-    "Upright Row", "Rear Delt Fly", "Landmine Press", "Cuban Press",
-    "Bottoms-up Press", "Y-Raise", "Plank Shoulder Tap", "Pike Push-up"
+  var LEGS_PULL_EXERCISES = [
+    "Romanian Deadlift", "Single-leg RDL", "Kettlebell Swing", "Hip Thrust",
+    "Glute Bridge", "Good Morning", "Hamstring Curl", "Deadlift",
+    "Cable Pull-through", "Reverse Hyper", "Single-leg Glute Bridge", "Nordic Curl"
+  ];
+  // Shoulders split into pressing vs pulling. Worth doing for more than volume: nearly
+  // everyone presses far more than they pull at the shoulder, and that imbalance is a common
+  // contributor to shoulder trouble. Giving the pull side equal billing evens it out.
+  var SHOULDER_PUSH_EXERCISES = [
+    "DB Shoulder Press", "Arnold Press", "Pike Push-up", "Landmine Press",
+    "Push Press", "Lateral Raise", "Front Raise", "Bottoms-up Press",
+    "Z Press", "Single-arm OHP", "Cuban Press", "DB Squat Press"
+  ];
+  var SHOULDER_PULL_EXERCISES = [
+    "Face Pull", "Rear Delt Fly", "Band Pull-apart", "Y-Raise",
+    "Upright Row", "High Pull", "Prone T-Raise", "Reverse Pec Deck",
+    "Scapular Retraction", "W-Raise", "Bent-over Lateral Raise", "Plank Shoulder Tap"
   ];
   var BICEP_EXERCISES = [
     "Bicep Curl", "Hammer Curl", "Concentration Curl", "DB Preacher Curl",
@@ -727,14 +744,20 @@
   // "met" = a rough baseline MET (metabolic equivalent) value used only for the optional
   // calorie estimate. Bigger muscle groups / more compound movement = higher MET.
   var DAY_META = {
-    1: { label:"Chest & Back",     type:"supersets", fillMode:"pair",   poolA:PUSH_EXERCISES,    poolB:PULL_EXERCISES,     fillLabel:"Push/Pull",       met:8 },
-    2: { label:"Aerobic Cardio",   type:"timed",      fillMode:"single", pool:AEROBIC_EXERCISES,                          fillLabel:"Cardio Exercise", met:7 },
-    3: { label:"Legs & Shoulders", type:"supersets", fillMode:"pair",   poolA:LEGS_EXERCISES,    poolB:SHOULDER_EXERCISES, fillLabel:"Legs/Shoulders",  met:8 },
-    4: { label:"Ab Circuit",       type:"circuit",   fillMode:"multi",  pool:AB_CIRCUIT_EXERCISES,                       fillLabel:"Ab Circuit",      met:6, workSec:60, restSec:15, startPhase:"work", capMin:15 },
-    5: { label:"Arms",             type:"supersets", fillMode:"pair",   poolA:BICEP_EXERCISES,   poolB:TRICEP_EXERCISES,   fillLabel:"Arms",            met:8 },
-    6: { label:"Anaerobic Cardio", type:"interval",   fillMode:"single", pool:ANAEROBIC_EXERCISES,                        fillLabel:"Cardio Exercise", met:10, sets:10, workSec:60, restSec:60, startPhase:"rest", capMin:20 },
-    7: { label:"Rest",             type:"rest" }
+    1: { label:"Chest & Back",     type:"supersets", fillMode:"pair",   poolA:PUSH_EXERCISES,        poolB:PULL_EXERCISES,          fillLabel:"Push/Pull",       met:8 },
+    2: { label:"Aerobic Cardio",   type:"timed",     fillMode:"single", pool:AEROBIC_EXERCISES,                                     fillLabel:"Cardio Exercise", met:7 },
+    3: { label:"Legs",             type:"supersets", fillMode:"pair",   poolA:LEGS_PUSH_EXERCISES,   poolB:LEGS_PULL_EXERCISES,     fillLabel:"Push/Pull",       met:8 },
+    4: { label:"Ab Circuit",       type:"circuit",   fillMode:"multi",  pool:AB_CIRCUIT_EXERCISES,                                  fillLabel:"Ab Circuit",      met:6, workSec:60, restSec:15, startPhase:"work", capMin:15 },
+    5: { label:"Shoulders",        type:"supersets", fillMode:"pair",   poolA:SHOULDER_PUSH_EXERCISES, poolB:SHOULDER_PULL_EXERCISES, fillLabel:"Push/Pull",     met:7 },
+    6: { label:"Anaerobic Cardio", type:"interval",  fillMode:"single", pool:ANAEROBIC_EXERCISES,                                   fillLabel:"Cardio Exercise", met:10, sets:10, workSec:60, restSec:60, startPhase:"rest", capMin:20 },
+    7: { label:"Arms",             type:"supersets", fillMode:"pair",   poolA:BICEP_EXERCISES,       poolB:TRICEP_EXERCISES,        fillLabel:"Arms",            met:8 }
   };
+  var WORKOUT_COUNT = 7;
+  // The rotation deliberately puts the two heavy pressing workouts (Chest & Back, Shoulders)
+  // as far apart as seven slots allow, since front delts and triceps work hard in both.
+  // Cardio sits between the resistance days so nothing punishing stacks back to back, and
+  // Abs lands mid-rotation as the naturally lighter day. There's no rest slot any more —
+  // rest is simply the gaps you take, which is how it worked in practice anyway.
 
   var INTENSITY_MULT = { easy:0.85, moderate:1.0, hard:1.15 };
 
@@ -801,6 +824,33 @@
   // minutes, matching the plan (1 min work / 15s rest ≈ 12 moves in 15 minutes). Auto-Fill
   // reshuffles from here whenever you like; picking a longer time cap on the Workout tab
   // will run more sets by cycling back through this same list.
+  // Starting lineups for the three superset workouts that changed shape in the rotation
+  // rework. Each pairs one exercise from each side of that day's split.
+  function buildDefaultLegsSupersets(){
+    return [
+      { a:mkEx("Goblet Squat"),          b:mkEx("Romanian Deadlift") },
+      { a:mkEx("Reverse Lunge"),         b:mkEx("Hip Thrust") },
+      { a:mkEx("Bulgarian Split Squat"), b:mkEx("Single-leg RDL") },
+      { a:mkEx("Step-up"),               b:mkEx("Kettlebell Swing") }
+    ];
+  }
+  function buildDefaultShoulderSupersets(){
+    return [
+      { a:mkEx("DB Shoulder Press"), b:mkEx("Face Pull") },
+      { a:mkEx("Arnold Press"),      b:mkEx("Rear Delt Fly") },
+      { a:mkEx("Lateral Raise"),     b:mkEx("Band Pull-apart") },
+      { a:mkEx("Landmine Press"),    b:mkEx("Y-Raise") }
+    ];
+  }
+  function buildDefaultArmsSupersets(){
+    return [
+      { a:mkEx("Bicep Curl"),         b:mkEx("Tricep Dip") },
+      { a:mkEx("Hammer Curl"),        b:mkEx("Overhead Tricep Extension") },
+      { a:mkEx("DB Preacher Curl"),   b:mkEx("Skull Crusher") },
+      { a:mkEx("Concentration Curl"), b:mkEx("Close-grip Push-up") }
+    ];
+  }
+
   function buildDefaultAbCircuitExercises(){
     return AB_CIRCUIT_EXERCISES.slice(0, 12).map(function(name){ return mkEx(name); });
   }
@@ -950,14 +1000,74 @@
     return Math.max(0.85, Math.min(1.2, ratio));
   }
 
-  function estimateWorkoutCalories(day, elapsedSec, intensity, roundsCompleted){
+  // Same idea as the pace multiplier, but for weight moved. MET-and-minutes alone treats a
+  // gentle set and a brutal one as identical if they took the same time — yet you're already
+  // recording reps and weight, so a heavier-than-usual session can and should read higher.
+  //
+  // Deliberately RELATIVE rather than absolute. Converting pounds lifted into joules and then
+  // into calories sounds rigorous but produces nonsense: most of the metabolic cost of lifting
+  // is stabilising, lowering the weight under control, and what your body does between sets —
+  // none of which is mechanical work on the bar. Comparing a session to your own average is a
+  // claim the data can actually support: "heavier than your normal" is knowable, "347 joules"
+  // is not.
+  function estimateVolumeMultiplier(day, rounds){
+    if(!rounds || !rounds.length) return 1;
+    function volumeOf(roundList){
+      var total = 0;
+      (roundList || []).forEach(function(round){
+        round.forEach(function(e){
+          total += (parseFloat(e.reps) || 0) * (parseFloat(e.weight) || 0);
+        });
+      });
+      return total;
+    }
+    var thisVolume = volumeOf(rounds);
+    if(thisVolume <= 0) return 1;   // bodyweight-only or unlogged: nothing to compare
+    var priorVolumes = loadHistory()
+      .filter(function(r){ return r.day === day && r.rounds && r.rounds.length; })
+      .map(function(r){ return volumeOf(r.rounds); })
+      .filter(function(v){ return v > 0; });
+    if(!priorVolumes.length) return 1;
+    var avg = priorVolumes.reduce(function(a,b){ return a+b; }, 0) / priorVolumes.length;
+    if(!avg) return 1;
+    return Math.max(0.85, Math.min(1.2, thisVolume / avg));
+  }
+
+  // The afterburn — properly, EPOC (excess post-exercise oxygen consumption). Your metabolism
+  // stays raised above baseline for a while after hard work and decays back down; the area
+  // under that decay is genuinely extra calories. It's real, but far smaller than fitness
+  // marketing implies: roughly 6-15% of the session's own cost, scaling with how hard you went.
+  var EPOC_PCT = { easy:0.04, moderate:0.07, hard:0.12 };
+
+  // Returns { work, epoc, total } in kcal, or null if there isn't enough profile to guess.
+  function estimateWorkoutCalorieParts(day, elapsedSec, intensity, roundsCompleted, rounds){
     var meta = DAY_META[day];
     var weightKg = getWeightKg();
     if(!meta || !meta.met || !weightKg) return null;
     var mult = INTENSITY_MULT[intensity] || 1;
     var paceMult = estimatePaceMultiplier(day, roundsCompleted, elapsedSec);
+    var volMult = (meta.type === "supersets") ? estimateVolumeMultiplier(day, rounds) : 1;
     var hours = elapsedSec / 3600;
-    return Math.round(meta.met * mult * paceMult * weightKg * hours);
+
+    // GROSS calories: a MET is a multiple of resting metabolism, so this figure includes the
+    // calories you'd have burned just existing for that time.
+    var gross = meta.met * mult * paceMult * volMult * weightKg * hours;
+
+    // ...which is why we subtract them. The "Today's Est. Calories" card already counts your
+    // BMR across the whole day, workout minutes included — so without this the workout hour
+    // was being counted twice, once as resting and again inside the MET. Subtracting the very
+    // same BMR figure the card adds means the two cancel exactly instead of approximately.
+    var bmr = computeBMR();
+    var resting = bmr ? (bmr / 24) * hours : weightKg * hours;   // 1 MET ≈ 1 kcal/kg/hr
+    var work = Math.max(0, gross - resting);
+
+    var epoc = work * (EPOC_PCT[intensity] != null ? EPOC_PCT[intensity] : 0.07);
+    return { work: Math.round(work), epoc: Math.round(epoc), total: Math.round(work + epoc) };
+  }
+
+  function estimateWorkoutCalories(day, elapsedSec, intensity, roundsCompleted, rounds){
+    var parts = estimateWorkoutCalorieParts(day, elapsedSec, intensity, roundsCompleted, rounds);
+    return parts ? parts.total : null;
   }
 
   function buildDefaultConfig(){
@@ -990,6 +1100,7 @@
       waterTagPatchAppliedV2: true,
       day4CircuitSeeded: true,
       day4CircuitSeededV2: true,
+      workoutRotationV2: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -999,21 +1110,11 @@
               { a:mkEx("DB Floor Press"), b:mkEx("Renegade Row") }
             ]},
         2: { locked:false, exercise: mkEx("Rowing Machine") },
-        3: { locked:false, supersets: [
-              { a:mkEx("Goblet Squat"),     b:mkEx("DB Shoulder Press") },
-              { a:mkEx("Reverse Lunge"),    b:mkEx("Lateral Raise") },
-              { a:mkEx("Romanian Deadlift"),b:mkEx("Arnold Press") },
-              { a:mkEx("Walking Lunge"),    b:mkEx("Front Raise") }
-            ]},
+        3: { locked:false, supersets: buildDefaultLegsSupersets() },
         4: { locked:false, exercises: buildDefaultAbCircuitExercises(), workSec:60, restSec:15 },
-        5: { locked:false, supersets: [
-              { a:mkEx("Bicep Curl"),          b:mkEx("Tricep Dip") },
-              { a:mkEx("Hammer Curl"),         b:mkEx("Overhead Tricep Extension") },
-              { a:mkEx("DB Preacher Curl"),    b:mkEx("Skull Crusher") },
-              { a:mkEx("Concentration Curl"),  b:mkEx("Close-grip Push-up") }
-            ]},
+        5: { locked:false, supersets: buildDefaultShoulderSupersets() },
         6: { locked:false, exercise: mkEx("Assault Bike Sprints"), workSec: 60, restSec: 60 },
-        7: {}
+        7: { locked:false, supersets: buildDefaultArmsSupersets() }
       }
     };
   }
@@ -1139,6 +1240,28 @@
       // One-time move to the three-role sound setup: work / rest / finished, each with its own
       // sound, so an interval day is readable by ear. Anyone still on the original plain tones
       // gets the new set; a sound you've deliberately chosen yourself is left alone.
+      // The rotation rework: Legs and Shoulders each became their own push/pull workout, Arms
+      // moved into the old rest slot, and the rest day went away. Days 3, 5 and 7 all carry
+      // different muscle groups than before, so their old lineups no longer make sense and get
+      // reseeded. Days 1, 2, 4 and 6 are untouched — whatever you'd customised there stays.
+      // History is deliberately left alone: every record stores its own label, so past
+      // sessions keep displaying as whatever they were on the day.
+      if(!cfg.workoutRotationV2){
+        if(cfg.days){
+          cfg.days[3] = Object.assign({ locked:false }, cfg.days[3], { supersets: buildDefaultLegsSupersets() });
+          cfg.days[5] = Object.assign({ locked:false }, cfg.days[5], { supersets: buildDefaultShoulderSupersets() });
+          cfg.days[7] = Object.assign({ locked:false }, cfg.days[7], { supersets: buildDefaultArmsSupersets() });
+          // Their exercise names all changed, so the "unchanged streak" snapshots are stale.
+          [3,5,7].forEach(function(d){
+            if(cfg.days[d]){
+              delete cfg.days[d].exerciseNamesSnapshot;
+              delete cfg.days[d].exerciseStreak;
+            }
+          });
+        }
+        cfg.workoutRotationV2 = true;
+        starterFoodsChanged = true;
+      }
       if(!cfg.soundRolesV1){
         var stockOld = ["beep","chime","buzz","bell"];
         if(stockOld.indexOf(cfg.timerSound) !== -1) cfg.timerSound = "triplebeep";
@@ -1556,7 +1679,9 @@
     var dayData = config.days[day] || (config.days[day] = {});
 
     document.getElementById("dayBanner").value = String(day);
-    document.getElementById("dayNavLabel").textContent = "Day " + day + " of 7";
+    // Name leads (it's in the banner above); position is just a quiet "where am I in the
+    // rotation" cue rather than implying a particular day of the week.
+    document.getElementById("dayNavLabel").textContent = day + " of " + WORKOUT_COUNT;
 
     var resetWeightsBtn = document.getElementById("resetWeightsBtn");
     var resetRepsBtn = document.getElementById("resetRepsBtn");
@@ -1564,14 +1689,14 @@
       // Circuit days don't track reps/weight at all (each set is a timed exercise, not a
       // rep target), so there's nothing for these buttons to reset — same treatment as rest
       // days rather than leaving them clickable with nothing to do.
-      resetWeightsBtn.textContent = "🧹 Clear Starting Weights (Day " + day + ")";
+      resetWeightsBtn.textContent = "🧹 Clear Starting Weights (" + meta.label + ")";
       resetWeightsBtn.disabled = true;
-      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (Day " + day + ")";
+      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (" + meta.label + ")";
       resetRepsBtn.disabled = true;
     } else {
-      resetWeightsBtn.textContent = "🧹 Clear Starting Weights (Day " + day + ": " + meta.label + ")";
+      resetWeightsBtn.textContent = "🧹 Clear Starting Weights (" + meta.label + ")";
       resetWeightsBtn.disabled = false;
-      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (Day " + day + ": " + meta.label + ")";
+      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (" + meta.label + ")";
       resetRepsBtn.disabled = false;
     }
 
@@ -1763,7 +1888,7 @@
   document.getElementById("resetWeightsBtn").addEventListener("click", function(){
     var day = config.currentDay;
     var dayLabel = DAY_META[day] ? DAY_META[day].label : ("Day " + day);
-    if(!confirm("Clear the starting weight for every exercise on Day " + day + " (" + dayLabel + ") back to blank?")) return;
+    if(!confirm("Clear the starting weight for every exercise in " + dayLabel + " back to blank?")) return;
     var dd = config.days[day];
     if(dd){
       if(dd.supersets){
@@ -1779,13 +1904,13 @@
     saveConfig(config);
     renderSetup();
     updateWorkoutIdleUI();
-    alert("Starting weights cleared for Day " + day + ".");
+    alert("Starting weights cleared for " + dayLabel + ".");
   });
 
   document.getElementById("resetRepsBtn").addEventListener("click", function(){
     var day = config.currentDay;
     var dayLabel = DAY_META[day] ? DAY_META[day].label : ("Day " + day);
-    if(!confirm("Reset the starting rep target back to 10 for every exercise on Day " + day + " (" + dayLabel + ")?")) return;
+    if(!confirm("Reset the starting rep target back to 10 for every exercise in " + dayLabel + "?")) return;
     var dd = config.days[day];
     if(dd){
       if(dd.supersets){
@@ -1801,7 +1926,7 @@
     saveConfig(config);
     renderSetup();
     updateWorkoutIdleUI();
-    alert("Starting reps reset to 10 for Day " + day + ".");
+    alert("Starting reps reset to 10 for " + dayLabel + ".");
   });
 
   document.getElementById("resetSessionBtn").addEventListener("click", function(){
@@ -1830,7 +1955,7 @@
     for(var d = 1; d <= 7; d++){
       var opt = document.createElement("option");
       opt.value = String(d);
-      opt.textContent = "Day " + d + ": " + DAY_META[d].label;
+      opt.textContent = DAY_META[d].label;
       sel.appendChild(opt);
     }
   }
@@ -1952,6 +2077,8 @@
     var meta = DAY_META[day];
     updateQuickTimerVisibility();
     document.getElementById("workoutDayBanner").value = String(day);
+    var posLabel = document.getElementById("workoutPositionLabel");
+    if(posLabel) posLabel.textContent = day + " of " + WORKOUT_COUNT;
     var startRow = document.getElementById("startRow");
     var restMsg = document.getElementById("restDayMsg");
     var previewHeading = document.getElementById("idlePreviewHeading");
@@ -2631,7 +2758,8 @@
     // For a continuous timed set, rounds/min pace is meaningless (finishing sooner isn't
     // "faster", it's just less time) — skip the pace multiplier by passing 0 rounds.
     var roundsForCalorie = session.dayType === "timed" ? 0 : session.rounds.length;
-    var calories = estimateWorkoutCalories(session.day, elapsedSec, intensity, roundsForCalorie);
+    var calParts = estimateWorkoutCalorieParts(session.day, elapsedSec, intensity, roundsForCalorie, session.rounds);
+    var calories = calParts ? calParts.total : null;
     var record = {
       id: makeHistoryId(),
       date: new Date(session.startedAt).toISOString(),
@@ -2647,7 +2775,9 @@
       rounds: session.rounds,
       roundSplitsMs: session.roundSplitsMs || [],
       intensity: intensity,
-      calories: calories
+      calories: calories,
+      caloriesWork: calParts ? calParts.work : null,   // stored so History can show the split
+      caloriesEpoc: calParts ? calParts.epoc : null    // rather than one opaque number
     };
     var history = loadHistory();
     history.unshift(record);
@@ -3562,7 +3692,9 @@
               if(r.dayType === "timed") roundsLabel = "1 continuous set";
               else if(r.dayType === "interval" || r.dayType === "circuit") roundsLabel = r.roundsCompleted + " / " + (r.totalSets || r.roundsCompleted) + " sets";
               else roundsLabel = r.roundsCompleted + " rounds";
-              var dayTag = r.dayLabel ? ("Day " + r.day + ": " + r.dayLabel + " — ") : "";
+              // Read from what the record saved, never from today's rotation — that's what
+              // keeps sessions logged before the workouts were reshuffled displaying honestly.
+              var dayTag = r.dayLabel ? (r.dayLabel + " — ") : "";
               var calTag = r.calories ? (", ~" + r.calories + " kcal") : "";
               lines.push(dayTag + roundsLabel + ", " + mm + ":" + ss + calTag);
             });
@@ -3622,7 +3754,7 @@
       var item = document.createElement("div");
       item.className = "history-item";
       var mm = Math.floor(rec.elapsedSec/60), ss = String(rec.elapsedSec%60).padStart(2,"0");
-      var dayTag = rec.dayLabel ? ("Day " + rec.day + ": " + escapeHtml(rec.dayLabel) + " &middot; ") : "";
+      var dayTag = rec.dayLabel ? (escapeHtml(rec.dayLabel) + " &middot; ") : "";
       var calTag = rec.calories ? (' &middot; ~' + rec.calories + ' kcal') : "";
       var totalVolume = computeRecordVolume(rec);
       var weightTag = totalVolume > 0 ? (' &middot; ' + Math.round(totalVolume).toLocaleString() + ' lb lifted') : "";
@@ -3653,6 +3785,8 @@
             if(rec.roundSplitsMs && rec.roundSplitsMs.length) detail.appendChild(buildRoundSplitsDetail(rec));
             detail.appendChild(buildHistoryTable(rec));
           }
+          var calDetail = buildCalorieDetail(rec);
+          if(calDetail) detail.appendChild(calDetail);
           var delBtn = document.createElement("button");
           delBtn.className = "secondary danger";
           delBtn.style.marginTop = "10px";
@@ -3713,6 +3847,20 @@
       }
     }
     return wrap;
+  }
+
+  // Shows how a calorie figure was arrived at, rather than presenting one number as though it
+  // were measured. Only appears on records saved with the breakdown.
+  function buildCalorieDetail(rec){
+    if(rec.caloriesWork == null) return null;
+    var p = document.createElement("p");
+    p.className = "day-nav-label";
+    p.style.margin = "6px 0";
+    var bits = ["Working: ~" + rec.caloriesWork + " kcal"];
+    if(rec.caloriesEpoc) bits.push("Afterburn: ~" + rec.caloriesEpoc + " kcal");
+    p.innerHTML = bits.join(" &middot; ") +
+      "<br><span style='opacity:0.7;'>Resting calories excluded — those are already in your daily total. Rough estimate: without heart rate this is ±20-30% at best.</span>";
+    return p;
   }
 
   function buildHistoryTotals(rec){
@@ -3837,7 +3985,7 @@
       if(DAY_META[d].type === "rest") continue;
       var opt = document.createElement("option");
       opt.value = String(d);
-      opt.textContent = "Day " + d + ": " + DAY_META[d].label;
+      opt.textContent = DAY_META[d].label;
       sel.appendChild(opt);
     }
   }
@@ -3911,7 +4059,8 @@
 
     var rounds = buildManualRounds(day, meta, roundsCompleted);
     var roundsForCalorie = meta.type === "timed" ? 0 : roundsCompleted;
-    var calories = estimateWorkoutCalories(day, elapsedSec, intensity, roundsForCalorie);
+    var calParts = estimateWorkoutCalorieParts(day, elapsedSec, intensity, roundsForCalorie, rounds);
+    var calories = calParts ? calParts.total : null;
     var dateObj = new Date(dateStr + "T12:00:00");
 
     var record = {
@@ -3928,7 +4077,9 @@
       restSec: restSec,
       rounds: rounds,
       intensity: intensity,
-      calories: calories
+      calories: calories,
+      caloriesWork: calParts ? calParts.work : null,
+      caloriesEpoc: calParts ? calParts.epoc : null
     };
 
     var history = loadHistory();
