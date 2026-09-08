@@ -668,7 +668,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-f</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-g</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -4800,6 +4800,7 @@
     if(scannerDiagParts.res) bits.push(scannerDiagParts.res);
     if(scannerDiagParts.engine) bits.push(scannerDiagParts.engine);
     if(scannerFrames) bits.push(scannerFrames + " frames");
+    if(scannerDiagParts.region) bits.push(scannerDiagParts.region);
     el.textContent = bits.join(" · ");
   }
 
@@ -4812,7 +4813,7 @@
   function stopScanner(){
     scannerActive = false;
     scannerFrames = 0;
-    scannerDiagParts = { camera:"", res:"", engine:"" };
+    scannerDiagParts = { camera:"", res:"", engine:"", region:"" };
     renderScannerDiag();
     if(scannerRaf){ clearTimeout(scannerRaf); scannerRaf = null; }
     try{ if(scannerReader && scannerReader.reset) scannerReader.reset(); }catch(e){}
@@ -4824,6 +4825,7 @@
     stopTracks(video && video.srcObject);
     scannerStream = null;
     nativeDetector = null;
+    frameDecoder = null;
     if(video){ try{ video.srcObject = null; }catch(e){} }
     document.getElementById("scannerOverlay").style.display = "none";
   }
@@ -4930,12 +4932,34 @@
     return rect;
   }
 
-  function drawFrame(video, cropped){
+  // A 1D barcode only needs ONE clean horizontal scan line to decode. Glare on shiny
+  // packaging typically wipes out a band across the middle of the bars — which is fatal if
+  // you only ever analyse the whole box, and harmless if you also analyse strips above and
+  // below the shine. So each pass through the loop attacks a different slice.
+  var SCAN_REGIONS = [
+    { name:"box",    slice: function(r){ return r; } },
+    { name:"frame",  slice: null },   // whole sensor frame — immune to any framing error
+    { name:"upper",  slice: function(r){ return { x:r.x, y:r.y,                w:r.w, h:r.h*0.55 }; } },
+    { name:"lower",  slice: function(r){ return { x:r.x, y:r.y + r.h*0.45,     w:r.w, h:r.h*0.55 }; } },
+    { name:"middle", slice: function(r){ return { x:r.x, y:r.y + r.h*0.25,     w:r.w, h:r.h*0.50 }; } },
+    { name:"wide",   slice: function(r){ return { x:Math.max(0,r.x - r.w*0.1), y:r.y, w:r.w*1.2, h:r.h }; } }
+  ];
+
+  function drawRegion(video, region){
     var vw = video.videoWidth, vh = video.videoHeight;
     if(!vw || !vh) return false;
-    var rect = cropped ? scanBoxSourceRect(video) : null;
-    if(cropped && !rect) return false;
-    if(!rect) rect = { x:0, y:0, w:vw, h:vh };
+    var rect;
+    if(!region.slice){
+      rect = { x:0, y:0, w:vw, h:vh };
+    }else{
+      var box = scanBoxSourceRect(video);
+      if(!box) return false;
+      rect = region.slice(box);
+      rect.x = Math.max(0, Math.min(rect.x, vw - 1));
+      rect.y = Math.max(0, Math.min(rect.y, vh - 1));
+      rect.w = Math.max(1, Math.min(rect.w, vw - rect.x));
+      rect.h = Math.max(1, Math.min(rect.h, vh - rect.y));
+    }
     scannerCanvas.width = Math.max(1, Math.round(rect.w));
     scannerCanvas.height = Math.max(1, Math.round(rect.h));
     scannerCtx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, scannerCanvas.width, scannerCanvas.height);
@@ -4943,6 +4967,60 @@
   }
 
   var nativeDetector = null;
+  var frameDecoder = null;   // { name, decode(canvas) -> string|null }
+
+  // The lesson from the last build: BrowserMultiFormatReader.decodeFromCanvas does NOT
+  // exist in every distribution, and when it's missing the old code silently handed the
+  // camera to the library's own loop — bypassing the crop, the resolution and the frame
+  // counter all at once. So build the decoder from the LOW-LEVEL primitives, which are
+  // core exports and far more stable, and fall back through progressively higher-level
+  // wrappers only if those are absent. Whatever wins gets named in the diag line.
+  function buildFrameDecoder(ZXing, hints){
+    // Preferred: raw MultiFormatReader. It also lets us try two different binarizers,
+    // which is the single best defence against glare — where the adaptive one blows out
+    // a washed-out band, the global-histogram one often still resolves the bars.
+    if(ZXing.MultiFormatReader && ZXing.BinaryBitmap && ZXing.HTMLCanvasElementLuminanceSource){
+      var binarizers = [];
+      if(ZXing.HybridBinarizer) binarizers.push(ZXing.HybridBinarizer);
+      if(ZXing.GlobalHistogramBinarizer) binarizers.push(ZXing.GlobalHistogramBinarizer);
+      if(binarizers.length){
+        var core = new ZXing.MultiFormatReader();
+        try{ if(core.setHints) core.setHints(hints); }catch(e){}
+        return {
+          name: "ZXing/core" + (binarizers.length > 1 ? "×2" : ""),
+          decode: function(canvas){
+            for(var i = 0; i < binarizers.length; i++){
+              try{
+                var src = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+                var bmp = new ZXing.BinaryBitmap(new binarizers[i](src));
+                var res = core.decode(bmp, hints);
+                if(res) return res.getText ? res.getText() : String(res);
+              }catch(e){
+                // NotFoundException on almost every frame — normal, not a fault.
+              }
+              try{ if(core.reset) core.reset(); }catch(e){}
+            }
+            return null;
+          }
+        };
+      }
+    }
+    var reader = null;
+    try{ reader = new ZXing.BrowserMultiFormatReader(hints); }catch(e){}
+    if(reader && typeof reader.decodeFromCanvas === "function"){
+      return { name:"ZXing/canvas", decode: function(canvas){
+        try{ var r = reader.decodeFromCanvas(canvas); return r ? (r.getText ? r.getText() : String(r)) : null; }
+        catch(e){ return null; }
+      }};
+    }
+    if(reader && typeof reader.decodeBitmap === "function" && typeof reader.createBinaryBitmap === "function"){
+      return { name:"ZXing/bitmap", decode: function(canvas){
+        try{ var r = reader.decodeBitmap(reader.createBinaryBitmap(canvas)); return r ? (r.getText ? r.getText() : String(r)) : null; }
+        catch(e){ return null; }
+      }};
+    }
+    return null;
+  }
 
   function decodeCurrentCanvas(){
     if(nativeDetector){
@@ -4950,39 +5028,33 @@
         return (codes && codes.length && codes[0].rawValue) || null;
       }).catch(function(){ return null; });
     }
-    if(scannerReader && typeof scannerReader.decodeFromCanvas === "function"){
-      try{
-        var r = scannerReader.decodeFromCanvas(scannerCanvas);
-        return Promise.resolve(r ? (r.getText ? r.getText() : String(r)) : null);
-      }catch(e){
-        // NotFoundException on the vast majority of frames — that's the normal "nothing
-        // in view yet" answer, not a fault.
-        return Promise.resolve(null);
-      }
+    if(frameDecoder){
+      var out = null;
+      try{ out = frameDecoder.decode(scannerCanvas); }catch(e){ out = null; }
+      return Promise.resolve(out);
     }
     return Promise.resolve(null);
   }
 
   function runDecodeLoop(video){
-    var croppedTurn = true;
+    var regionIdx = 0;
     (function loop(){
       if(!scannerActive) return;
-      // Alternate between the tight crop (best detail, needs the box maths to be right)
-      // and the whole frame (lower detail, but immune to any framing error). Whichever
-      // is going to work, one of them will.
+      var region = SCAN_REGIONS[regionIdx % SCAN_REGIONS.length];
+      regionIdx++;
       var drew = false;
-      try{ drew = drawFrame(video, croppedTurn); }catch(e){ drew = false; }
-      croppedTurn = !croppedTurn;
+      try{ drew = drawRegion(video, region); }catch(e){ drew = false; }
       if(!drew){
         scannerRaf = setTimeout(loop, 150);
         return;
       }
       scannerFrames++;
-      renderScannerDiag(); // every frame: a counter that visibly moves is the whole point
+      scannerDiagParts.region = region.name;
+      renderScannerDiag(); // a counter that visibly moves is the whole point
       decodeCurrentCanvas().then(function(code){
         if(!scannerActive) return;
         if(code){ onBarcodeFound(code); return; }
-        scannerRaf = setTimeout(loop, 120);
+        scannerRaf = setTimeout(loop, 60);
       });
     })();
   }
@@ -5030,24 +5102,22 @@
           hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
             ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
             ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
-            ZXing.BarcodeFormat.CODE_128
+            ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+            ZXing.BarcodeFormat.ITF
           ]);
           hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-          scannerReader = new ZXing.BrowserMultiFormatReader(hints);
-          if(typeof scannerReader.decodeFromCanvas !== "function"){
-            // This build of the library doesn't expose per-frame decoding, so hand the
-            // camera back and let it drive its own loop instead.
-            scannerDiagParts.engine = "ZXing (library loop)";
+          frameDecoder = buildFrameDecoder(ZXing, hints);
+          if(!frameDecoder){
+            // Nothing usable in this build. Say so plainly rather than sitting there
+            // looking busy — the typed-barcode field is right there and always works.
+            scannerDiagParts.engine = "no decoder available";
             renderScannerDiag();
-            setScannerStatus("Fill the box with the barcode, about 6–8 inches away.");
-            stopTracks(scannerStream); scannerStream = null; video.srcObject = null;
-            return scannerReader.decodeFromConstraints(CAMERA_CONSTRAINTS_CHAIN[1], video, function(result){
-              if(result && scannerActive) onBarcodeFound(result.getText ? result.getText() : String(result));
-            });
+            setScannerStatus("This barcode reader build can't decode here. Cancel and type the digits under the barcode instead — it works the same way.");
+            return;
           }
-          scannerDiagParts.engine = "ZXing";
+          scannerDiagParts.engine = frameDecoder.name;
           renderScannerDiag();
-          setScannerStatus("Fill the box with the barcode, about 6–8 inches away.");
+          setScannerStatus("Fill the box with the barcode, 6–8 inches away. Tilt slightly to kill any glare on the bars.");
           runDecodeLoop(video);
         });
       });
