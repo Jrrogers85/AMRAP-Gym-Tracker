@@ -638,7 +638,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-a</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-c</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -958,6 +958,45 @@
   function buildStarterFoodsV6(){
     return STARTER_FOODS_V6.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
   }
+  // The three XS training supplements, straight off their Supplement Facts panels (1 scoop each).
+  //
+  // A note on the protein figures, because these labels don't declare a Protein line at all —
+  // supplement panels list free-form amino acids separately rather than as protein. The amino
+  // acids are still protein's building blocks and still carry 4 kcal/g, so they're logged as
+  // protein here; that's both the metabolically honest reading and what makes the macros
+  // roughly reconcile against the declared calories.
+  //
+  //   Post-Workout: 2.1 g amino blend + 5.6 g L-glutamine = 7.7 g. With 2 g carbs and the
+  //                 1.5 g glucosamine that accounts for essentially all 45 declared calories.
+  //   Muscle Multiplier: the 4.1 g amino blend, plus 3 g carbs, lands right on its 25 calories.
+  //   Pre-Workout: only 1.025 g is the EAA blend. Its beta-alanine (4 g) and L-citrulline
+  //                (3.4 g) ARE amino acids and do carry calories — which is where most of the
+  //                45 comes from — but they're non-proteinogenic: the body can't build muscle
+  //                protein from them. Counting them as protein would flatter the number, so
+  //                only the EAA blend is logged and the calories are taken as declared.
+  //
+  // Deliberately NO water credit on these three, unlike the ready-to-drink shakes. The powder
+  // itself contains no water — you add it — and pre-workout and Muscle Multiplier often go into
+  // the same glass, so crediting each scoop separately would count one drink twice. Log that
+  // water yourself with the +oz buttons and it stays accurate.
+  var STARTER_FOODS_V7 = [
+    { name:"XS Post-Workout Recovery – Fruit Punch (1 scoop)", calories:45, protein:7.7, carbs:2, fat:0 },
+    { name:"XS Muscle Multiplier – Berry Blast (1 scoop)",     calories:25, protein:4.1, carbs:3, fat:0 },
+    { name:"XS Pre-Workout Boost – Blue Raspberry (1 scoop)",  calories:45, protein:1,   carbs:1, fat:0 }
+  ];
+  function buildStarterFoodsV7(){
+    return STARTER_FOODS_V7.map(function(f){ return Object.assign({ id: makeHistoryId() }, f); });
+  }
+  // These three briefly shipped with a water credit attached. Strip it from anyone who already
+  // got that version — matched by name, same approach as the scoop and water-tag patches above.
+  var XS_SUPPLEMENT_NAMES = STARTER_FOODS_V7.map(function(f){ return f.name; });
+  function removeXsSupplementWater(foods){
+    return foods.map(function(f){
+      return XS_SUPPLEMENT_NAMES.indexOf(f.name) !== -1
+        ? Object.assign({}, f, { waterOz: 0, countsAsWater: false })
+        : f;
+    });
+  }
 
   // ---------- Calorie / BMR estimates (rough, educated-guess only) ----------
   function getWeightKg(){
@@ -1088,7 +1127,7 @@
       audioShareMode: "duck",
       audioShareModeV3: true,
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
-      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
+      foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6(), buildStarterFoodsV7()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
       starterFoodsSeededV2: true,
       starterFoodsSeededV3: true,
@@ -1096,6 +1135,8 @@
       starterFoodsSeededV4: true,
       starterFoodsSeededV5: true,
       starterFoodsSeededV6: true,
+      starterFoodsSeededV7: true,
+      xsSupplementWaterRemovedV1: true,
       waterTagPatchApplied: true,
       waterTagPatchAppliedV2: true,
       day4CircuitSeeded: true,
@@ -1197,6 +1238,16 @@
       if(!cfg.starterFoodsSeededV6){
         cfg.foods = cfg.foods.concat(buildStarterFoodsV6());
         cfg.starterFoodsSeededV6 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.starterFoodsSeededV7){
+        cfg.foods = cfg.foods.concat(buildStarterFoodsV7());
+        cfg.starterFoodsSeededV7 = true;
+        starterFoodsChanged = true;
+      }
+      if(!cfg.xsSupplementWaterRemovedV1){
+        cfg.foods = removeXsSupplementWater(cfg.foods);
+        cfg.xsSupplementWaterRemovedV1 = true;
         starterFoodsChanged = true;
       }
       if(!cfg.waterTagPatchApplied){
