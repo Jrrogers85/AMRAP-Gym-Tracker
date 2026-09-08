@@ -320,6 +320,15 @@
         <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
         <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
       </details>
+      <details id="foodDataSettingsDetails" style="margin-top:14px;">
+        <summary style="cursor:pointer; font-size:13px; color:var(--muted);"><b>Food database</b></summary>
+        <p class="muted" style="font-size:12px; margin:12px 0 0;">Barcode scanning works out of the box — no setup needed. Typed searches get much better for <b>whole and generic foods</b> ("grilled chicken thigh", "sweet potato") if you add a free USDA key below.</p>
+        <p class="muted" style="font-size:12px; margin:8px 0 0;">Get one in about a minute at <b>fdc.nal.usda.gov/api-key-signup</b> — name and email, no card. The key arrives by email; paste it here.</p>
+        <input type="text" id="usdaKeyInput" placeholder="USDA API key (optional)" autocapitalize="off" autocorrect="off" spellcheck="false" style="width:100%; margin-top:8px;">
+        <p class="muted" id="usdaKeyStatus" style="font-size:12px; margin:6px 0 0;"></p>
+        <p class="muted" style="font-size:11px; margin:8px 0 0; opacity:0.75;">The key is stored on your own device and synced to your own account only — it never appears in the app's source. It's rate-limited (about 1,000 lookups an hour), not billed, so the worst case is a "try again later".</p>
+        <p class="muted" style="font-size:11px; margin:8px 0 0; opacity:0.75;">Barcode data comes from Open Food Facts, a free community database, made available under the Open Database License.</p>
+      </details>
     </div>
 
     <select class="day-banner" id="dayBanner"></select>
@@ -510,7 +519,8 @@
       <details id="addFoodDetails">
         <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="addFoodSummary">Add Food</summary>
       <div id="addFoodFields" style="margin-top:10px;">
-        <p class="muted" style="font-size:12px; margin:10px 0 0;">Search by name (e.g. "Little Debbie Oatmeal Creme Pie") to pull in nutrition facts, or skip straight to entering it yourself below.</p>
+        <p class="muted" style="font-size:12px; margin:10px 0 0;">Scan the barcode on the package, or search by name (e.g. "Little Debbie Oatmeal Creme Pie"). Either way it just pre-fills the form below — always yours to edit before you save it.</p>
+        <button class="secondary" id="foodScanBtn" style="margin-top:8px;">📷 Scan a Barcode</button>
         <div class="row2" style="margin-top:8px;">
           <input type="text" id="foodSearchInput" placeholder="Search a food...">
           <button class="secondary" id="foodSearchBtn" style="margin-top:0;">🔎 Search</button>
@@ -638,7 +648,21 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-c</span></footer>
+<!-- BARCODE SCANNER OVERLAY — full screen, only visible while the camera is live. -->
+<div id="scannerOverlay" style="display:none; position:fixed; inset:0; z-index:100; background:#000; flex-direction:column;">
+  <div style="padding:calc(env(safe-area-inset-top) + 12px) 16px 10px; text-align:center; color:var(--text); font-size:15px; font-weight:700;">Point at the barcode</div>
+  <div style="position:relative; flex:1; min-height:0; overflow:hidden;">
+    <video id="scannerVideo" playsinline muted autoplay style="width:100%; height:100%; object-fit:cover;"></video>
+    <!-- Aiming box: purely visual, the decoder reads the whole frame. -->
+    <div style="position:absolute; left:10%; right:10%; top:50%; transform:translateY(-50%); height:120px; border:2px solid var(--accent); border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,0.45);"></div>
+  </div>
+  <div style="padding:12px 16px calc(env(safe-area-inset-bottom) + 16px); background:var(--bg);">
+    <p class="muted" id="scannerStatus" style="font-size:13px; margin:0 0 10px; text-align:center;">Starting camera…</p>
+    <button class="secondary danger" id="scannerCancelBtn" style="width:100%; margin-top:0;">Cancel</button>
+  </div>
+</div>
+
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-e</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -744,13 +768,30 @@
   // "met" = a rough baseline MET (metabolic equivalent) value used only for the optional
   // calorie estimate. Bigger muscle groups / more compound movement = higher MET.
   var DAY_META = {
-    1: { label:"Chest & Back",     type:"supersets", fillMode:"pair",   poolA:PUSH_EXERCISES,        poolB:PULL_EXERCISES,          fillLabel:"Push/Pull",       met:8 },
-    2: { label:"Aerobic Cardio",   type:"timed",     fillMode:"single", pool:AEROBIC_EXERCISES,                                     fillLabel:"Cardio Exercise", met:7 },
-    3: { label:"Legs",             type:"supersets", fillMode:"pair",   poolA:LEGS_PUSH_EXERCISES,   poolB:LEGS_PULL_EXERCISES,     fillLabel:"Push/Pull",       met:8 },
-    4: { label:"Ab Circuit",       type:"circuit",   fillMode:"multi",  pool:AB_CIRCUIT_EXERCISES,                                  fillLabel:"Ab Circuit",      met:6, workSec:60, restSec:15, startPhase:"work", capMin:15 },
-    5: { label:"Shoulders",        type:"supersets", fillMode:"pair",   poolA:SHOULDER_PUSH_EXERCISES, poolB:SHOULDER_PULL_EXERCISES, fillLabel:"Push/Pull",     met:7 },
-    6: { label:"Anaerobic Cardio", type:"interval",  fillMode:"single", pool:ANAEROBIC_EXERCISES,                                   fillLabel:"Cardio Exercise", met:10, sets:10, workSec:60, restSec:60, startPhase:"rest", capMin:20 },
-    7: { label:"Arms",             type:"supersets", fillMode:"pair",   poolA:BICEP_EXERCISES,       poolB:TRICEP_EXERCISES,        fillLabel:"Arms",            met:8 }
+    // MET CALIBRATION — read before changing any of these numbers.
+    //
+    // Each value is the metabolic cost of a MODERATE session of that workout, NOT a hard one.
+    // That distinction is the whole point: these get multiplied by the intensity you tap
+    // (hard = 1.15), by your pace relative to your own average (up to 1.2), and on lifting
+    // days by your volume relative to your average (up to 1.2). Set the baseline at "hard"
+    // and those multipliers stack on top of a number that already assumed hard work, counting
+    // effort two or three times over.
+    //
+    // That's exactly what went wrong before: supersets sat at 8 — the published figure for
+    // *vigorous* circuit training — so a hard, faster-than-usual session came out at 10.8 METs,
+    // a rate associated with running rather than lifting. The values below are set so a hard
+    // session at a slightly-above-average pace lands around 8, which is where a no-rest
+    // superset day genuinely belongs.
+    //
+    // Reference points: general weightlifting ~3.5 · vigorous weightlifting ~6 ·
+    // vigorous circuit training ~8 · running 6 mph ~9.8.
+    1: { label:"Chest & Back",     type:"supersets", fillMode:"pair",   poolA:PUSH_EXERCISES,        poolB:PULL_EXERCISES,          fillLabel:"Push/Pull",       met:6.5 },
+    2: { label:"Aerobic Cardio",   type:"timed",     fillMode:"single", pool:AEROBIC_EXERCISES,                                     fillLabel:"Cardio Exercise", met:6.5 },
+    3: { label:"Legs",             type:"supersets", fillMode:"pair",   poolA:LEGS_PUSH_EXERCISES,   poolB:LEGS_PULL_EXERCISES,     fillLabel:"Push/Pull",       met:6.5 },
+    4: { label:"Ab Circuit",       type:"circuit",   fillMode:"multi",  pool:AB_CIRCUIT_EXERCISES,                                  fillLabel:"Ab Circuit",      met:5, workSec:60, restSec:15, startPhase:"work", capMin:15 },
+    5: { label:"Shoulders",        type:"supersets", fillMode:"pair",   poolA:SHOULDER_PUSH_EXERCISES, poolB:SHOULDER_PULL_EXERCISES, fillLabel:"Push/Pull",     met:6 },
+    6: { label:"Anaerobic Cardio", type:"interval",  fillMode:"single", pool:ANAEROBIC_EXERCISES,                                   fillLabel:"Cardio Exercise", met:8, sets:10, workSec:60, restSec:60, startPhase:"rest", capMin:20 },
+    7: { label:"Arms",             type:"supersets", fillMode:"pair",   poolA:BICEP_EXERCISES,       poolB:TRICEP_EXERCISES,        fillLabel:"Arms",            met:5.5 }
   };
   var WORKOUT_COUNT = 7;
   // The rotation deliberately puts the two heavy pressing workouts (Chest & Back, Shoulders)
@@ -1126,6 +1167,10 @@
       // the advice to use a Focus mode instead of the mute switch.
       audioShareMode: "duck",
       audioShareModeV3: true,
+      // Optional, user-supplied, stored per-device: unlocks USDA FoodData Central for typed
+      // searches. Deliberately NOT hard-coded — this file lives in a public repo, so any key
+      // baked in would be a key handed to the internet.
+      usdaApiKey: "",
       proteinGoalG: null, // null = auto-computed from bodyweight; set = user override
       foods: buildStarterFoods().concat(buildStarterFoodsV2(), buildStarterFoodsV3(), buildStarterFoodsV4(), buildStarterFoodsV5(), buildStarterFoodsV6(), buildStarterFoodsV7()), // personal quick-add food list: {id, name, protein, carbs, fat, calories}
       starterFoodsSeeded: true,
@@ -1196,6 +1241,7 @@
       if(!cfg.finishSound) cfg.finishSound = "levelup3";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
       if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "duck";
+      if(typeof cfg.usdaApiKey !== "string") cfg.usdaApiKey = "";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
       if(!cfg.profile.activityLevel) cfg.profile.activityLevel = "moderate";
       if(!cfg.profile.goal) cfg.profile.goal = "maintain";
@@ -1724,6 +1770,8 @@
   // ---------- Setup screen ----------
   function renderSetup(){
     document.getElementById("defaultCapSelect").value = String(config.defaultCapMin);
+    document.getElementById("usdaKeyInput").value = config.usdaApiKey || "";
+    renderUsdaKeyStatus();
 
     var day = config.currentDay;
     var meta = DAY_META[day];
@@ -1934,6 +1982,20 @@
     saveConfig(config);
     document.getElementById("timeCapSelect").value = String(config.defaultCapMin);
     document.getElementById("capLabel").textContent = config.defaultCapMin;
+  });
+
+  function renderUsdaKeyStatus(){
+    var el = document.getElementById("usdaKeyStatus");
+    if(!el) return;
+    el.textContent = usdaKey()
+      ? "Key saved — typed searches now check USDA as well as Open Food Facts."
+      : "No key yet. Barcode scanning still works; typed searches use Open Food Facts only.";
+  }
+  document.getElementById("usdaKeyInput").addEventListener("change", function(e){
+    config.usdaApiKey = (e.target.value || "").trim();
+    e.target.value = config.usdaApiKey;
+    saveConfig(config);
+    renderUsdaKeyStatus();
   });
 
   document.getElementById("resetWeightsBtn").addEventListener("click", function(){
@@ -4493,10 +4555,39 @@
   });
   document.getElementById("foodCountsAsWaterToggle").addEventListener("change", updateFoodWaterOzFieldVisibility);
 
-  // Free, open, crowd-sourced food database — good coverage of branded/packaged foods
-  // since it's built from real product barcodes. Quality varies by item (crowd-sourced),
-  // so results just pre-fill the form below rather than saving directly — always editable
-  // before it's added to your list.
+  // ---------------------------------------------------------------------------
+  // FOOD LOOKUP — two free sources, each used for what it's actually good at.
+  //
+  //   Open Food Facts : crowd-sourced, built around real product barcodes. It's the
+  //                     right (and only) place to resolve a scanned barcode, and it's
+  //                     keyless. Quality varies by item, since anyone can contribute.
+  //   USDA FoodData   : government-curated, lab-measured. Far better for whole and
+  //                     generic foods ("chicken thigh", "sweet potato") where Open Food
+  //                     Facts only knows packaged goods. Needs a free key, so it's
+  //                     optional — everything still works without one.
+  //
+  // Neither source ever writes straight into your log. A match only pre-fills the form
+  // below, so a wrong crowd-sourced number is something you can see and correct before
+  // it counts against your day.
+  // ---------------------------------------------------------------------------
+
+  function offProductToFood(p, fallbackName){
+    var n = p.nutriments || {};
+    var perServing = n["energy-kcal_serving"] != null;
+    var food = {
+      name: p.product_name || p.generic_name || fallbackName || "",
+      brand: p.brands || "",
+      calories: Math.round(perServing ? n["energy-kcal_serving"] : (n["energy-kcal_100g"] || 0)),
+      protein: Math.round((perServing ? n["proteins_serving"] : n["proteins_100g"]) || 0),
+      carbs: Math.round((perServing ? n["carbohydrates_serving"] : n["carbohydrates_100g"]) || 0),
+      fat: Math.round((perServing ? n["fat_serving"] : n["fat_100g"]) || 0),
+      servingNote: perServing ? (p.serving_size || "per serving") : "per 100g — adjust for your actual portion",
+      source: "Open Food Facts"
+    };
+    return food;
+  }
+  function hasAnyMacros(f){ return !!(f.calories || f.protein || f.carbs || f.fat); }
+
   function searchOpenFoodFacts(query){
     var url = "https://world.openfoodfacts.org/cgi/search.pl?search_terms=" +
       encodeURIComponent(query) + "&search_simple=1&action=process&json=1&page_size=6";
@@ -4505,19 +4596,97 @@
       return res.json();
     }).then(function(data){
       var products = (data && data.products) || [];
-      return products.map(function(p){
-        var n = p.nutriments || {};
-        var perServing = n["energy-kcal_serving"] != null;
-        return {
-          name: p.product_name || p.generic_name || query,
-          brand: p.brands || "",
-          calories: Math.round(perServing ? n["energy-kcal_serving"] : (n["energy-kcal_100g"] || 0)),
-          protein: Math.round((perServing ? n["proteins_serving"] : n["proteins_100g"]) || 0),
-          carbs: Math.round((perServing ? n["carbohydrates_serving"] : n["carbohydrates_100g"]) || 0),
-          fat: Math.round((perServing ? n["fat_serving"] : n["fat_100g"]) || 0),
-          servingNote: perServing ? (p.serving_size || "per serving") : "per 100g — adjust for your actual portion"
-        };
-      }).filter(function(f){ return f.calories || f.protein || f.carbs || f.fat; });
+      return products.map(function(p){ return offProductToFood(p, query); }).filter(hasAnyMacros);
+    });
+  }
+
+  // Open Food Facts' native lookup: the barcode IS the primary key, so this is a direct
+  // hit rather than a fuzzy search — either the exact product or nothing.
+  function lookupBarcodeOFF(code){
+    var url = "https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(code) +
+      ".json?fields=product_name,generic_name,brands,serving_size,nutriments";
+    return fetch(url).then(function(res){
+      // A barcode that isn't in the database answers 404 — that's a normal "not found",
+      // not a broken request, so don't treat it as an error.
+      if(res.status === 404) return null;
+      if(!res.ok) throw new Error("Lookup failed (" + res.status + ")");
+      return res.json();
+    }).then(function(data){
+      if(!data || data.status === 0 || !data.product) return null;
+      var food = offProductToFood(data.product, "");
+      if(!food.name && !hasAnyMacros(food)) return null;
+      return food;
+    });
+  }
+
+  // USDA nutrient IDs, which are stable identifiers rather than names — safer to match on
+  // than the display text, which varies between data types.
+  var USDA_NUTRIENTS = { calories:1008, protein:1003, carbs:1005, fat:1004 };
+  function usdaNutrient(food, id){
+    var list = food.foodNutrients || [];
+    for(var i = 0; i < list.length; i++){
+      var nid = list[i].nutrientId != null ? list[i].nutrientId : (list[i].nutrient && list[i].nutrient.id);
+      if(nid === id) return Number(list[i].value != null ? list[i].value : list[i].amount) || 0;
+    }
+    return 0;
+  }
+  function usdaFoodToFood(f){
+    // USDA reports per 100g/100ml. If the record carries its own serving size in a mass or
+    // volume unit we can scale to one serving; otherwise we hand back the 100g figures and
+    // say so, rather than silently presenting a portion the label never claimed.
+    var factor = 1, note = "per 100g — adjust for your actual portion";
+    var unit = (f.servingSizeUnit || "").toLowerCase();
+    if(f.servingSize > 0 && (unit === "g" || unit === "ml" || unit === "grm" || unit === "mlt")){
+      factor = f.servingSize / 100;
+      note = f.householdServingFullText || (f.servingSize + " " + (unit === "grm" ? "g" : unit === "mlt" ? "ml" : unit));
+    }
+    return {
+      name: f.description || "",
+      brand: f.brandName || f.brandOwner || "",
+      calories: Math.round(usdaNutrient(f, USDA_NUTRIENTS.calories) * factor),
+      protein: Math.round(usdaNutrient(f, USDA_NUTRIENTS.protein) * factor),
+      carbs: Math.round(usdaNutrient(f, USDA_NUTRIENTS.carbs) * factor),
+      fat: Math.round(usdaNutrient(f, USDA_NUTRIENTS.fat) * factor),
+      servingNote: note,
+      source: "USDA"
+    };
+  }
+  function usdaKey(){ return (config.usdaApiKey || "").trim(); }
+  function searchUSDA(query, extraParams){
+    var key = usdaKey();
+    if(!key) return Promise.resolve([]);
+    var url = "https://api.nal.usda.gov/fdc/v1/foods/search?api_key=" + encodeURIComponent(key) +
+      "&query=" + encodeURIComponent(query) + "&pageSize=6" + (extraParams || "");
+    return fetch(url).then(function(res){
+      if(res.status === 403) throw new Error("USDA key rejected");
+      if(res.status === 429) throw new Error("USDA hourly limit reached");
+      if(!res.ok) throw new Error("USDA search failed (" + res.status + ")");
+      return res.json();
+    }).then(function(data){
+      return ((data && data.foods) || []).map(usdaFoodToFood).filter(hasAnyMacros);
+    });
+  }
+
+  // Typed search asks both sources at once and shows whatever comes back. One source
+  // failing (no key, offline, rate-limited) must never blank out the other, so each
+  // branch swallows its own error and returns an empty list.
+  function searchAllFoodSources(query){
+    var problems = [];
+    var off = searchOpenFoodFacts(query).catch(function(err){
+      console.error("[AMRAP nutrition] Open Food Facts search failed:", err);
+      problems.push("Open Food Facts didn't answer");
+      return [];
+    });
+    var usda = searchUSDA(query).catch(function(err){
+      console.error("[AMRAP nutrition] USDA search failed:", err);
+      // A rejected key or a hit rate limit is worth saying out loud — it's fixable, and
+      // otherwise it just looks like USDA quietly has nothing.
+      problems.push(err && /key|limit/i.test(err.message || "") ? err.message : "USDA didn't answer");
+      return [];
+    });
+    return Promise.all([usda, off]).then(function(sets){
+      // USDA first: when a key is set, its numbers are the measured ones.
+      return { matches: sets[0].concat(sets[1]), problems: problems };
     });
   }
 
@@ -4529,38 +4698,236 @@
     document.getElementById("foodFatInput").value = food.fat || "";
   }
 
+  function renderFoodMatches(matches){
+    var results = document.getElementById("foodSearchResults");
+    results.innerHTML = "";
+    matches.forEach(function(m){
+      var btn = document.createElement("button");
+      btn.className = "secondary";
+      btn.style.marginTop = "6px";
+      btn.style.textAlign = "left";
+      btn.style.display = "block";
+      btn.style.width = "100%";
+      var brandTag = m.brand ? (escapeHtml(m.brand) + " — ") : "";
+      var sourceTag = m.source ? (' &middot; <span style="opacity:0.7;">' + escapeHtml(m.source) + '</span>') : "";
+      btn.innerHTML =
+        '<div style="font-size:13px;">' + brandTag + escapeHtml(m.name) + '</div>' +
+        '<div class="muted" style="font-size:11px; margin-top:2px;">' + m.calories + ' kcal &middot; ' +
+          m.protein + 'g P &middot; ' + m.carbs + 'g C &middot; ' + m.fat + 'g F &middot; ' +
+          escapeHtml(m.servingNote) + sourceTag + '</div>';
+      btn.addEventListener("click", function(){ fillFoodForm(m); });
+      results.appendChild(btn);
+    });
+  }
+
   document.getElementById("foodSearchBtn").addEventListener("click", function(){
     var query = document.getElementById("foodSearchInput").value.trim();
     var status = document.getElementById("foodSearchStatus");
-    var results = document.getElementById("foodSearchResults");
-    results.innerHTML = "";
+    document.getElementById("foodSearchResults").innerHTML = "";
     if(!query){ status.textContent = "Type something to search for first."; return; }
     status.textContent = "Searching…";
-    searchOpenFoodFacts(query).then(function(matches){
-      if(!matches.length){
-        status.textContent = "No matches found — enter it manually below.";
+    searchAllFoodSources(query).then(function(out){
+      var note = out.problems.length ? " (" + out.problems.join("; ") + ")" : "";
+      if(!out.matches.length){
+        status.textContent = "No matches found" + note + " — enter it manually below.";
         return;
       }
-      status.textContent = "Tap a match to fill in the form below (still editable):";
-      matches.forEach(function(m){
-        var btn = document.createElement("button");
-        btn.className = "secondary";
-        btn.style.marginTop = "6px";
-        btn.style.textAlign = "left";
-        btn.style.display = "block";
-        btn.style.width = "100%";
-        var brandTag = m.brand ? (escapeHtml(m.brand) + " — ") : "";
-        btn.innerHTML =
-          '<div style="font-size:13px;">' + brandTag + escapeHtml(m.name) + '</div>' +
-          '<div class="muted" style="font-size:11px; margin-top:2px;">' + m.calories + ' kcal &middot; ' +
-            m.protein + 'g P &middot; ' + m.carbs + 'g C &middot; ' + m.fat + 'g F &middot; ' + escapeHtml(m.servingNote) + '</div>';
-        btn.addEventListener("click", function(){ fillFoodForm(m); });
-        results.appendChild(btn);
-      });
+      status.textContent = "Tap a match to fill in the form below (still editable)" + note + ":";
+      renderFoodMatches(out.matches);
     }).catch(function(err){
       console.error("[AMRAP nutrition] food search failed:", err);
-      status.textContent = "Couldn't reach the food database (check your connection) — enter it manually below.";
+      status.textContent = "Couldn't reach the food databases (check your connection) — enter it manually below.";
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // BARCODE SCANNING
+  //
+  // Safari has no built-in barcode reader, so we lazily pull in ZXing the first time you
+  // tap Scan — that keeps a ~200KB download off every single app load for a feature you
+  // might use once a week. Where the browser DOES have a native BarcodeDetector (Android
+  // Chrome), we use it and skip the download entirely.
+  //
+  // The camera needs HTTPS, which GitHub Pages gives us for free.
+  // ---------------------------------------------------------------------------
+  var ZXING_SRC = "https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js";
+  var zxingPromise = null;
+  function loadZXing(){
+    if(window.ZXing) return Promise.resolve(window.ZXing);
+    if(zxingPromise) return zxingPromise;
+    zxingPromise = new Promise(function(resolve, reject){
+      var s = document.createElement("script");
+      s.src = ZXING_SRC;
+      s.async = true;
+      s.onload = function(){
+        if(window.ZXing) resolve(window.ZXing);
+        else reject(new Error("Barcode library loaded but didn't register"));
+      };
+      s.onerror = function(){
+        zxingPromise = null; // let a later tap retry after the connection comes back
+        reject(new Error("Couldn't download the barcode library"));
+      };
+      document.head.appendChild(s);
+    });
+    return zxingPromise;
+  }
+
+  var scannerReader = null;      // ZXing reader, kept so we can reset() it
+  var scannerStream = null;      // native-path MediaStream, kept so we can stop its tracks
+  var scannerRaf = null;         // native-path loop handle
+  var scannerActive = false;
+
+  function setScannerStatus(msg){
+    var el = document.getElementById("scannerStatus");
+    if(el) el.textContent = msg;
+  }
+
+  function stopScanner(){
+    scannerActive = false;
+    if(scannerRaf){ clearTimeout(scannerRaf); scannerRaf = null; }
+    try{ if(scannerReader && scannerReader.reset) scannerReader.reset(); }catch(e){}
+    scannerReader = null;
+    var video = document.getElementById("scannerVideo");
+    // Stop every track we can reach. Leaving one live keeps the camera light on, which
+    // looks (rightly) alarming.
+    [scannerStream, video && video.srcObject].forEach(function(stream){
+      if(stream && stream.getTracks){
+        stream.getTracks().forEach(function(t){ try{ t.stop(); }catch(e){} });
+      }
+    });
+    scannerStream = null;
+    if(video){ try{ video.srcObject = null; }catch(e){} }
+    document.getElementById("scannerOverlay").style.display = "none";
+  }
+
+  function openScanner(){
+    var overlay = document.getElementById("scannerOverlay");
+    overlay.style.display = "flex";
+    scannerActive = true;
+    setScannerStatus("Starting camera…");
+    startScanning().catch(function(err){
+      console.error("[AMRAP nutrition] scanner failed to start:", err);
+      var msg = "Couldn't start the camera.";
+      if(err && (err.name === "NotAllowedError" || err.name === "SecurityError")){
+        msg = "Camera access was blocked. Allow it in Settings → Safari → Camera, then try again.";
+      }else if(err && err.name === "NotFoundError"){
+        msg = "No camera found on this device.";
+      }else if(err && err.message){
+        msg = err.message;
+      }
+      setScannerStatus(msg + " You can still type a search or enter it by hand.");
+    });
+  }
+
+  var CAMERA_CONSTRAINTS = { video: { facingMode: { ideal: "environment" } }, audio: false };
+
+  function startScanning(){
+    var video = document.getElementById("scannerVideo");
+    // Native path: no download, decodes in the browser engine.
+    if(window.BarcodeDetector){
+      var detector = new window.BarcodeDetector({
+        formats: ["ean_13","ean_8","upc_a","upc_e","code_128"]
+      });
+      return navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS).then(function(stream){
+        scannerStream = stream;
+        video.srcObject = stream;
+        var play = video.play();
+        if(play && play.catch) play.catch(function(){});
+        setScannerStatus("Hold the barcode inside the box.");
+        var tick = function(){
+          if(!scannerActive) return;
+          detector.detect(video).then(function(codes){
+            if(!scannerActive) return;
+            if(codes && codes.length && codes[0].rawValue){ onBarcodeFound(codes[0].rawValue); return; }
+            scannerRaf = setTimeout(tick, 250);
+          }).catch(function(){
+            // A frame that isn't ready yet throws; that's expected, so just try again.
+            if(scannerActive) scannerRaf = setTimeout(tick, 250);
+          });
+        };
+        tick();
+      });
+    }
+    // ZXing path (this is the one iPhones take).
+    setScannerStatus("Loading the barcode reader…");
+    return loadZXing().then(function(ZXing){
+      var hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.CODE_128
+      ]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      scannerReader = new ZXing.BrowserMultiFormatReader(hints);
+      if(!scannerActive) return; // cancelled while the library was downloading
+      setScannerStatus("Hold the barcode inside the box.");
+      return scannerReader.decodeFromConstraints(CAMERA_CONSTRAINTS, video, function(result){
+        // Called on EVERY frame — with a result only when something decoded. The
+        // second argument is a NotFoundException on the other 99% of frames, which is
+        // normal operation, not an error worth surfacing.
+        if(result && scannerActive) onBarcodeFound(result.getText ? result.getText() : String(result));
+      });
+    });
+  }
+
+  function onBarcodeFound(code){
+    if(!scannerActive) return;
+    scannerActive = false;                 // stop the loop before the async lookup starts
+    setScannerStatus("Found " + code + " — looking it up…");
+    stopScanner();
+    handleScannedBarcode(code);
+  }
+
+  // Barcode → product. Open Food Facts is the primary lookup (barcodes are its actual
+  // key). If it doesn't know the code and a USDA key is set, we try USDA's branded index,
+  // which also stores UPCs. If both come up empty we still put the number on screen so
+  // it's obvious the scan itself worked and it's the databases that don't have the item.
+  function handleScannedBarcode(code){
+    var status = document.getElementById("foodSearchStatus");
+    document.getElementById("foodSearchResults").innerHTML = "";
+    document.getElementById("addFoodDetails").open = true;
+    status.textContent = "Looking up barcode " + code + "…";
+    lookupBarcodeOFF(code).then(function(food){
+      if(food) return [food];
+      return searchUSDA(code, "&dataType=Branded").catch(function(err){
+        console.error("[AMRAP nutrition] USDA barcode fallback failed:", err);
+        return [];
+      });
+    }).then(function(matches){
+      if(!matches.length){
+        status.textContent = "Scanned " + code + ", but neither database has it — type the name to search, or enter the label by hand below.";
+        return;
+      }
+      if(matches.length === 1){
+        fillFoodForm(matches[0]);
+        var m = matches[0];
+        status.textContent = "Found: " + (m.brand ? m.brand + " " : "") + m.name +
+          " (" + m.servingNote + ") — check the numbers against the label before saving.";
+        renderFoodMatches(matches);
+        return;
+      }
+      status.textContent = "Tap the right one to fill in the form below:";
+      renderFoodMatches(matches);
+    }).catch(function(err){
+      console.error("[AMRAP nutrition] barcode lookup failed:", err);
+      status.textContent = "Scanned " + code + " but couldn't reach the database — check your connection, or enter it by hand below.";
+    });
+  }
+
+  document.getElementById("foodScanBtn").addEventListener("click", function(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      document.getElementById("foodSearchStatus").textContent =
+        "This browser won't give the page a camera. Open the app in Safari or Chrome (not an in-app browser) to scan.";
+      return;
+    }
+    openScanner();
+  });
+  document.getElementById("scannerCancelBtn").addEventListener("click", stopScanner);
+  // Backgrounding the app should release the camera rather than leave it held open —
+  // both for the indicator light and because iOS may revoke the stream anyway, leaving a
+  // frozen frame that looks live but has stopped decoding.
+  document.addEventListener("visibilitychange", function(){
+    if(document.hidden && scannerActive) stopScanner();
   });
 
   function resetAddFoodForm(){
