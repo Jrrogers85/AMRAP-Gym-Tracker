@@ -287,35 +287,38 @@
         <option value="25">25 min</option>
         <option value="30">30 min</option>
       </select>
-      <div class="muted" style="font-size:13px; margin:14px 0 4px;">🔥 Work starts</div>
-      <div class="row2" style="align-items:center;">
-        <select id="quickTimerSound" style="flex:1;"></select>
-        <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
-      </div>
-      <div class="muted" style="font-size:13px; margin:14px 0 4px;">😮‍💨 Rest starts</div>
-      <div class="row2" style="align-items:center;">
-        <select id="restSoundSelect" style="flex:1;"></select>
-        <button class="secondary" id="restSoundTestBtn" style="margin-top:0;">🔊 Test</button>
-      </div>
-      <div class="muted" style="font-size:13px; margin:14px 0 4px;">🏁 Workout finished — last round done</div>
-      <div class="row2" style="align-items:center;">
-        <select id="finishSoundSelect" style="flex:1;"></select>
-        <button class="secondary" id="finishSoundTestBtn" style="margin-top:0;">🔊 Test</button>
-      </div>
-      <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">Three clearly different sounds means you can tell go from stop from done without looking at your phone. The work sound is also used for Day 2's five-minute markers, the Quick Timer, and hold timers.</p>
-      <div style="margin-top:14px;">
-        <div class="muted" style="font-size:13px; margin-bottom:6px;"><b>Beep behaviour</b></div>
-        <select id="audioShareModeSelect" style="width:100%;">
-          <option value="duck">Share nicely — podcast survives · needs mute switch OFF</option>
-          <option value="takeover">Beep through the mute switch — other audio stops for good</option>
-          <option value="solo">Nav-style (experimental — may be silent on mute)</option>
-        </select>
-        <p class="muted" style="font-size:12px; margin:8px 0 0;">iOS forces a choice here, so pick by what you're doing:</p>
-        <p class="muted" style="font-size:12px; margin:4px 0 0;"><b>Podcast or WWG audio playing?</b> Use "Share nicely" with the mute switch <b>off</b>. To keep other notifications quiet, turn on a <b>Focus</b> mode instead of using mute — Focus silences notifications but leaves music and beeps alone.</p>
-        <p class="muted" style="font-size:12px; margin:4px 0 0;"><b>Nothing else playing?</b> "Beep through the mute switch" works with mute either way.</p>
-      </div>
-      <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
-      <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
+      <details id="soundSettingsDetails" style="margin-top:14px;">
+        <summary style="cursor:pointer; font-size:13px; color:var(--muted);"><b>Sounds &amp; beeps</b></summary>
+        <div class="muted" style="font-size:13px; margin:14px 0 4px;">🔥 Work starts</div>
+        <div class="row2" style="align-items:center;">
+          <select id="quickTimerSound" style="flex:1;"></select>
+          <button class="secondary" id="quickTimerTestSoundBtn" style="margin-top:0;">🔊 Test</button>
+        </div>
+        <div class="muted" style="font-size:13px; margin:14px 0 4px;">😮‍💨 Rest starts</div>
+        <div class="row2" style="align-items:center;">
+          <select id="restSoundSelect" style="flex:1;"></select>
+          <button class="secondary" id="restSoundTestBtn" style="margin-top:0;">🔊 Test</button>
+        </div>
+        <div class="muted" style="font-size:13px; margin:14px 0 4px;">🏁 Workout finished — last round done</div>
+        <div class="row2" style="align-items:center;">
+          <select id="finishSoundSelect" style="flex:1;"></select>
+          <button class="secondary" id="finishSoundTestBtn" style="margin-top:0;">🔊 Test</button>
+        </div>
+        <p class="muted" style="font-size:11px; margin:6px 0 0; opacity:0.8;">Three clearly different sounds means you can tell go from stop from done without looking at your phone. The work sound is also used for Day 2's five-minute markers, the Quick Timer, and hold timers.</p>
+        <div style="margin-top:14px;">
+          <div class="muted" style="font-size:13px; margin-bottom:6px;"><b>Beep behaviour</b></div>
+          <select id="audioShareModeSelect" style="width:100%;">
+            <option value="duck">Share nicely — podcast survives · needs mute switch OFF</option>
+            <option value="takeover">Beep through the mute switch — other audio stops for good</option>
+            <option value="solo">Nav-style (experimental — may be silent on mute)</option>
+          </select>
+          <p class="muted" style="font-size:12px; margin:8px 0 0;">iOS forces a choice here, so pick by what you're doing:</p>
+          <p class="muted" style="font-size:12px; margin:4px 0 0;"><b>Podcast or WWG audio playing?</b> Use "Share nicely" with the mute switch <b>off</b>. To keep other notifications quiet, turn on a <b>Focus</b> mode instead of using mute — Focus silences notifications but leaves music and beeps alone.</p>
+          <p class="muted" style="font-size:12px; margin:4px 0 0;"><b>Nothing else playing?</b> "Beep through the mute switch" works with mute either way.</p>
+        </div>
+        <p class="muted" id="audioStatusLine" style="font-size:12px; margin:8px 0 0;">Sound status: —</p>
+        <p class="muted" style="font-size:11px; margin:4px 0 0; opacity:0.75;">If beeps ever stop working, check this line and tell me what it says — it shows whether iOS has taken the sound system away and which path the last beep used.</p>
+      </details>
     </div>
 
     <select class="day-banner" id="dayBanner"></select>
@@ -462,6 +465,11 @@
         <div id="nutFatBar" style="height:100%; width:0%; background:var(--danger); transition:width 0.3s;"></div>
       </div>
       <p class="muted" style="font-size:12px; margin:10px 0 0;" id="nutProteinGoalNote"></p>
+      <details id="loggedTodayDetails" style="margin-top:8px;">
+        <summary style="cursor:pointer; font-size:13px; color:var(--muted);" id="loggedTodaySummary">Logged Today</summary>
+        <div id="loggedTodayList" style="margin-top:8px;"></div>
+        <p class="muted" id="loggedTodayEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing logged yet today.</p>
+      </details>
     </div>
 
     <div class="card" id="waterCard">
@@ -490,9 +498,11 @@
     </div>
 
     <div class="card" id="quickAddFoodsCard">
-      <h2>Quick Add</h2>
-      <div id="quickAddFoodsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;"></div>
-      <p class="muted" id="quickAddEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">No foods saved yet — add your first one below.</p>
+      <details id="quickAddDetails">
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="quickAddSummary">Quick Add</summary>
+        <div id="quickAddFoodsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;"></div>
+        <p class="muted" id="quickAddEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">No foods saved yet — add your first one below.</p>
+      </details>
     </div>
 
     <div class="card" id="addFoodCard">
@@ -544,14 +554,6 @@
         <button class="secondary" id="logOnceBtn" style="margin-top:8px;">📝 Log just this once</button>
         <p class="muted" style="font-size:12px; margin:6px 0 0;">"Log just this once" adds it to today's log only — nothing gets saved for next time.</p>
       </div>
-      </details>
-    </div>
-
-    <div class="card">
-      <details id="loggedTodayDetails">
-        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="loggedTodaySummary">Logged Today</summary>
-        <div id="loggedTodayList" style="margin-top:10px;"></div>
-        <p class="muted" id="loggedTodayEmptyMsg" style="font-size:12px; margin:8px 0 0; display:none;">Nothing logged yet today.</p>
       </details>
     </div>
 
@@ -635,7 +637,7 @@
 
 </main>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-v</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-06-w</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -963,6 +965,7 @@
       currentDay: 1,
       defaultCapMin: 20,
       // Three roles, three deliberately different sounds — go / stop / done by ear alone.
+      quickAddOpen: false,         // remembers how you left the Quick Add section
       timerSound:  "triplebeep",   // work starts (also the general-purpose beep)
       restSound:   "woodblock3",   // rest starts
       finishSound: "levelup3",     // whole workout done
@@ -3291,6 +3294,16 @@
     playTimerSound();
   });
 
+  // Quick Add is the one section you reach for constantly, so rather than forcing a choice
+  // between "always bulky" and "expand it every single time", it simply remembers how you
+  // left it. Collapsed by default; open it once and it stays open.
+  var quickAddDetails = document.getElementById("quickAddDetails");
+  quickAddDetails.open = !!config.quickAddOpen;
+  quickAddDetails.addEventListener("toggle", function(){
+    config.quickAddOpen = quickAddDetails.open;
+    saveConfig(config);
+  });
+
   document.getElementById("restSoundSelect").addEventListener("change", function(e){
     config.restSound = e.target.value;
     saveConfig(config);
@@ -4138,6 +4151,8 @@
   function renderQuickAddGrid(){
     var grid = document.getElementById("quickAddFoodsGrid");
     var emptyMsg = document.getElementById("quickAddEmptyMsg");
+    var summary = document.getElementById("quickAddSummary");
+    if(summary) summary.textContent = "Quick Add (" + ((config.foods || []).length) + ")";
     grid.innerHTML = "";
     // Per-unit foods (full-width, with their own qty + Log button) show first, so they don't
     // break up the 2-column grid of single-tap foods below them — a stable sort just moves
