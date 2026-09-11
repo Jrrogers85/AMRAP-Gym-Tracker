@@ -245,7 +245,9 @@
         <div id="roundExerciseList"></div>
       </div>
       <div class="card" id="intervalCard" style="display:none; text-align:center;">
-        <p class="muted" id="intervalExerciseName" style="margin:0 0 4px; font-size:14px;"></p>
+        <!-- The move you're doing is the thing you actually need mid-set, so it's the
+             loudest text here — bigger and brighter than the WORK/REST label above it. -->
+        <p id="intervalExerciseName" style="margin:0 0 6px; font-size:22px; font-weight:800; line-height:1.15; color:var(--text);"></p>
         <div class="label" id="intervalPhaseLabel" style="font-size:16px; font-weight:800; letter-spacing:1px; color:var(--accent2);">REST</div>
         <div class="clock" id="intervalCountdown" style="font-size:48px; font-weight:800; margin:4px 0;">1:00</div>
         <div class="day-nav-label" id="intervalSetLabel">Set 1 of 10</div>
@@ -407,11 +409,9 @@
     </div>
 
     <div class="card" id="manualHistoryCard">
-      <div class="flex-between" id="manualHistoryToggle" style="cursor:pointer;">
-        <h2 style="margin:0;">Log a Past Workout</h2>
-        <span class="muted" id="manualHistoryChevron" style="font-size:13px;">▸ Show</span>
-      </div>
-      <div id="manualHistoryFields" style="display:none;">
+      <details id="manualHistoryDetails">
+        <summary style="cursor:pointer; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.6px;" id="manualHistorySummary">Log a Past Workout</summary>
+      <div id="manualHistoryFields">
         <p class="muted" style="font-size:12px; margin:10px 0 0;">Already did a workout without the app running? Add it here — it'll use whatever exercises, reps, and weight are currently set for that day on the Setup tab.</p>
         <div class="exercise-row">
           <div style="flex:1; font-size:15px;">Day</div>
@@ -439,6 +439,7 @@
         </div>
         <button class="primary" id="manualAddBtn" style="margin-top:10px;">➕ Add to History</button>
       </div>
+      </details>
     </div>
   </section>
 
@@ -668,7 +669,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-08-g</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-11-a</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -760,6 +761,66 @@
   // because it only appears on Day 4, which is already entirely time-based.
   var HOLD_EXERCISES = ["Wall Sit"];
   var DEFAULT_HOLD_SEC = 60;
+
+  // ---------- Exercises done for time, but still counted in reps ----------
+  // Distinct from a hold: a wall sit has no reps at all, whereas kettlebell swings are
+  // "as many as you can get in 60 seconds". So these keep their weight/reps boxes and
+  // simply gain a countdown to work against. Keeping reps matters beyond tidiness — the
+  // calorie estimate scales strength days by reps x weight, so dropping them would
+  // quietly degrade that day's volume signal.
+  var TIMED_REP_EXERCISES = ["Kettlebell Swing"];
+  var DEFAULT_TIMED_REP_SEC = 60;
+  function isTimedRepExercise(name){
+    if(!name) return false;
+    var n = String(name).trim().toLowerCase();
+    return TIMED_REP_EXERCISES.some(function(t){ return t.toLowerCase() === n; });
+  }
+  function timedRepTargetFor(ex){
+    var v = parseInt(ex && ex.timedSec, 10);
+    return (v > 0) ? v : DEFAULT_TIMED_REP_SEC;
+  }
+
+  // ---------- Moves worked one side at a time, on the timed circuit ----------
+  // A 60s block becomes 30s left then 30s right, with an audible cue at the swap. Kept as
+  // ONE slot on purpose: if left and right were separate entries, the circuit's slot
+  // cycling could land "left" in the final slot and the right side would never happen —
+  // you'd finish genuinely lopsided, at a different spot every session.
+  // Moves that already alternate within themselves (Bicycle Crunches, Heel Touches,
+  // Windshield Wipers) are deliberately NOT here — they're symmetrical by nature.
+  var TWO_SIDED_EXERCISES = ["Side Plank", "Oblique V-Ups", "Side Plank Dips"];
+  function isTwoSidedExercise(name){
+    if(!name) return false;
+    var n = String(name).trim().toLowerCase();
+    return TWO_SIDED_EXERCISES.some(function(t){ return t.toLowerCase() === n; });
+  }
+
+  // ---------- Rep-based moves worked one limb/side at a time ----------
+  // The reps you enter are the TOTAL across both sides, which is how they've always been
+  // recorded — so nothing already logged changes meaning. All this does is show the
+  // per-side split so you don't have to halve it mid-set, and start these moves at 20
+  // reps instead of 10 so the per-side number lands somewhere sensible.
+  var SINGLE_SIDED_EXERCISES = [
+    "Single-arm Row", "Renegade Row", "Plank Row", "Concentration Curl", "Cross-body Curl",
+    "Tricep Kickback", "DB Preacher Curl", "Single-arm OHP", "Bottoms-up Press",
+    "Landmine Press", "Bulgarian Split Squat", "Reverse Lunge", "Walking Lunge", "Step-up",
+    "Curtsy Lunge", "Split Squat", "Single-leg RDL", "Single-leg Glute Bridge",
+    "Plank Shoulder Tap", "Y-Raise", "W-Raise"
+  ];
+  var SINGLE_SIDED_DEFAULT_REPS = 20;
+  function isSingleSidedExercise(name){
+    if(!name) return false;
+    var n = String(name).trim().toLowerCase();
+    return SINGLE_SIDED_EXERCISES.some(function(t){ return t.toLowerCase() === n; });
+  }
+  // "20 reps" -> "10 each side". Odd totals can't split evenly, so say so honestly rather
+  // than rounding and quietly under- or over-counting one side.
+  function perSideNote(name, reps){
+    if(!isSingleSidedExercise(name)) return "";
+    var r = parseInt(reps, 10);
+    if(!(r > 0)) return "each side";
+    if(r % 2 === 0) return (r/2) + " each side";
+    return Math.floor(r/2) + "–" + Math.ceil(r/2) + " each side";
+  }
   function isHoldExercise(name){
     if(!name) return false;
     var n = String(name).trim().toLowerCase();
@@ -863,7 +924,11 @@
       : "🔁 " + streak + " workout" + (streak === 1 ? "" : "s") + " in a row with these exercises.";
   }
 
-  function mkEx(name){ return { name:name, reps:10, weight:"" }; }
+  // Single-sided moves start at 20 so the per-side split is a clean 10 — which is what you'd
+  // otherwise be typing by hand every time one came up.
+  function mkEx(name){
+    return { name:name, reps: isSingleSidedExercise(name) ? SINGLE_SIDED_DEFAULT_REPS : 10, weight:"" };
+  }
 
   // Default lineup for Day 4's ab circuit — the first 12 moves from the pool, in a fixed
   // order (same "just pick a reasonable starting set" approach used for every other day's
@@ -1934,12 +1999,34 @@
     autoFillBtn.disabled = locked;
   }
 
+  // A one-line "how this move behaves" tag, so the special cases are visible in Setup
+  // rather than only revealing themselves mid-workout.
+  function exerciseBehaviourNote(name){
+    if(isHoldExercise(name))      return "held for time";
+    if(isTimedRepExercise(name))  return "timed set — as many reps as you can get";
+    if(isTwoSidedExercise(name))  return "one side at a time — swaps halfway";
+    if(isSingleSidedExercise(name)) return "one side at a time — reps are the total for both";
+    return "";
+  }
+
   function exerciseFieldHtml(idx, slot, ex, dis){
     // "dis" (locked state) disables the exercise name. Rep targets and starting weight are
     // set on the Workout tab instead, so Setup only manages which exercises are used.
+    var note = exerciseBehaviourNote(ex.name);
     return '<div class="exercise-row">' +
       '<input type="text" '+dis+' data-ss="'+idx+'" data-slot="'+slot+'" data-field="name" value="'+escapeHtml(ex.name)+'" placeholder="Exercise name">' +
-      '</div>';
+      '</div>' +
+      (note ? '<div class="muted" style="font-size:11px; margin:-4px 0 8px 2px;">' + escapeHtml(note) + '</div>' : '');
+  }
+
+  // When Auto-Fill drops a single-sided move into a slot that's still on the plain default
+  // of 10, start it at 20 so the per-side split is a clean 10. Only ever nudges the
+  // untouched default upward — a rep count you've deliberately set is never overwritten.
+  function applySingleSidedRepDefault(ex){
+    if(!ex) return;
+    if(isSingleSidedExercise(ex.name) && parseInt(ex.reps, 10) === 10){
+      ex.reps = SINGLE_SIDED_DEFAULT_REPS;
+    }
   }
 
   document.getElementById("lockToggleBtn").addEventListener("click", function(){
@@ -1963,9 +2050,12 @@
       dayData.supersets.forEach(function(ss, i){
         ss.a.name = picksA[i];
         ss.b.name = picksB[i];
+        applySingleSidedRepDefault(ss.a);
+        applySingleSidedRepDefault(ss.b);
       });
     } else if(meta.fillMode === "single"){
       dayData.exercise.name = shuffle(meta.pool)[0];
+      applySingleSidedRepDefault(dayData.exercise);
     } else if(meta.fillMode === "multi"){
       // Keeps the same number of move slots already configured — just reshuffles which
       // exercises from the pool fill them. Loops the shuffled pool if there are more slots
@@ -2134,6 +2224,13 @@
         entry.holdSec = ex.targetHoldSec || DEFAULT_HOLD_SEC;
         entry.heldSec = 0;
         entry.holdEndsAt = null;
+      } else if(isTimedRepExercise(ex.name)){
+        // Timer AND reps: the clock is a target to work against, the reps are what you
+        // actually got. Fresh clock each round, same as a hold.
+        entry.isTimedRep = true;
+        entry.timedSec = ex.targetTimedSec || DEFAULT_TIMED_REP_SEC;
+        entry.timedEndsAt = null;
+        entry.timedDone = false;
       }
       return entry;
     });
@@ -2291,8 +2388,15 @@
             '<span style="font-size:12px;">sec</span>' +
           '</div></div>';
       }
+      // Timed-rep moves still take reps and weight — the clock is a target, not a
+      // replacement for the numbers — so the only difference here is the caption.
+      var sub = isTimedRepExercise(ex.name)
+        ? (timedRepTargetFor(ex) + "s — as many reps as you can")
+        : perSideNote(ex.name, ex.reps);
       return '<div class="exercise-row">' +
-        '<div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(ex.name) + '</div>' +
+        '<div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(ex.name) +
+          (sub ? '<div class="muted" style="font-size:11px;" data-perside="'+idx+'-'+slot+'">' + escapeHtml(sub) + '</div>' : '') +
+        '</div>' +
         '<div class="target-fields">' +
           '<input type="number" data-ss="'+idx+'" data-slot="'+slot+'" data-field="reps" value="'+ex.reps+'" placeholder="#" min="1" max="99">' +
           '<input type="number" data-ss="'+idx+'" data-slot="'+slot+'" data-field="weight" value="'+ex.weight+'" placeholder="lb" min="0">' +
@@ -2317,11 +2421,23 @@
         function fallback(){ return field === "weight" ? "" : (field === "holdSec" ? DEFAULT_HOLD_SEC : 10); }
         var val = inp.value === "" ? fallback() : parseInt(inp.value, 10);
         if(isNaN(val)) val = fallback();
+        var target;
         if(meta.type === "supersets"){
           var idx = parseInt(inp.dataset.ss, 10);
-          dayData.supersets[idx][slot][field] = val;
+          target = dayData.supersets[idx][slot];
         } else {
-          dayData.exercise[field] = val;
+          target = dayData.exercise;
+        }
+        target[field] = val;
+        // Keep the "N each side" caption in step with what you're typing.
+        if(field === "reps"){
+          var noteEl = listEl.querySelector('[data-perside="' + (inp.dataset.ss||0) + '-' + slot + '"]');
+          if(noteEl){
+            var t = isTimedRepExercise(target.name)
+              ? (timedRepTargetFor(target) + "s — as many reps as you can")
+              : perSideNote(target.name, val);
+            noteEl.textContent = t;
+          }
         }
         saveConfig(config);
       });
@@ -2439,7 +2555,7 @@
       intervalTimelineCard.style.display = "block";
       roundNumBadge.style.display = "none";
       badge.style.display = "inline-block";
-      document.getElementById("intervalExerciseName").textContent = session.current[0] ? session.current[0].name : "";
+      document.getElementById("intervalExerciseName").textContent = currentMoveLabel();
       renderIntervalTimeline();
       updateIntervalDisplay();
     } else if(session.dayType === "timed"){
@@ -2555,8 +2671,18 @@
           '<button class="secondary holdBtn" id="holdBtn-'+i+'" data-i="'+i+'" style="grid-column:span 2; margin-top:0; font-variant-numeric:tabular-nums;">' +
             holdButtonLabel(ex) + '</button>';
       } else {
+        // The per-side note is driven off the LIVE rep value, not the target, so it keeps
+        // pace as you edit — change 20 to 24 and it says "12 each side" immediately.
+        var side = perSideNote(ex.name, ex.reps);
+        var sub = 'target ' + ex.targetReps + ' reps' + (side ? ' &middot; ' + side : '');
+        var timerBtn = ex.isTimedRep
+          ? '<button class="secondary timedBtn" id="timedBtn-'+i+'" data-i="'+i+'" ' +
+            'style="margin-top:4px; padding:4px 10px; font-size:12px; width:auto; font-variant-numeric:tabular-nums;">' +
+            timedButtonLabel(ex) + '</button>'
+          : '';
         row.innerHTML =
-          '<div class="name">' + escapeHtml(ex.name) + '<small>target ' + ex.targetReps + ' reps</small></div>' +
+          '<div class="name">' + escapeHtml(ex.name) +
+            '<small id="perSide-'+i+'">' + sub + '</small>' + timerBtn + '</div>' +
           '<input type="number" inputmode="decimal" data-i="'+i+'" data-f="weight" value="'+ex.weight+'" placeholder="lb">' +
           '<input type="number" inputmode="numeric" data-i="'+i+'" data-f="reps" value="'+ex.reps+'" placeholder="#">';
       }
@@ -2566,12 +2692,24 @@
       inp.addEventListener("input", function(){
         var i = parseInt(inp.dataset.i,10), f = inp.dataset.f;
         session.current[i][f] = inp.value;
+        if(f === "reps") refreshPerSideNote(i);
         persistSession();
       });
     });
     wrap.querySelectorAll(".holdBtn").forEach(function(btn){
       btn.addEventListener("click", function(){ toggleHold(parseInt(btn.dataset.i, 10)); });
     });
+    wrap.querySelectorAll(".timedBtn").forEach(function(btn){
+      btn.addEventListener("click", function(){ toggleTimedRep(parseInt(btn.dataset.i, 10)); });
+    });
+  }
+
+  function refreshPerSideNote(i){
+    var el = document.getElementById("perSide-" + i);
+    if(!el || !session || !session.current[i]) return;
+    var ex = session.current[i];
+    var side = perSideNote(ex.name, ex.reps);
+    el.innerHTML = 'target ' + ex.targetReps + ' reps' + (side ? ' &middot; ' + side : '');
   }
 
   // ---------- Hold timers (Wall Sit and friends) ----------
@@ -2616,6 +2754,7 @@
     if(!session || !session.current) return;
     var changed = false;
     session.current.forEach(function(ex, i){
+      if(ex.isTimedRep){ if(updateTimedRep(ex, i)) changed = true; return; }
       if(!ex.isHold || !ex.holdEndsAt) return;
       if(Date.now() >= ex.holdEndsAt){
         ex.heldSec = holdEntryTarget(ex);
@@ -2626,6 +2765,49 @@
       refreshHoldButton(i);
     });
     if(changed) persistSession();
+  }
+
+  // ---------- Timed sets (Kettlebell Swing and friends) ----------
+  // Same ticker-driven, reload-survivable approach as holds. The difference is what the
+  // timer MEANS: a hold records the seconds, a timed set just bounds the effort and you
+  // still type in how many reps you managed.
+  function timedRepRemainingSec(ex){
+    if(!ex.timedEndsAt) return null;
+    return Math.max(0, Math.ceil((ex.timedEndsAt - Date.now())/1000));
+  }
+  function timedButtonLabel(ex){
+    var rem = timedRepRemainingSec(ex);
+    if(rem !== null) return "⏱ " + formatQuickTime(rem);
+    if(ex.timedDone) return "✅ done — tap to redo";
+    return "▶ Start " + timedRepTargetFor(ex) + "s";
+  }
+  function refreshTimedButton(i){
+    var btn = document.getElementById("timedBtn-" + i);
+    if(btn && session && session.current[i]) btn.textContent = timedButtonLabel(session.current[i]);
+  }
+  function toggleTimedRep(i){
+    if(!session || !session.current[i]) return;
+    var ex = session.current[i];
+    if(ex.timedEndsAt){
+      ex.timedEndsAt = null;      // tapped mid-set: stop the clock, keep whatever reps are typed
+      ex.timedDone = true;
+    } else {
+      ex.timedDone = false;
+      ex.timedEndsAt = Date.now() + timedRepTargetFor(ex) * 1000;
+    }
+    persistSession();
+    refreshTimedButton(i);
+  }
+  function updateTimedRep(ex, i){
+    var changed = false;
+    if(ex.timedEndsAt && Date.now() >= ex.timedEndsAt){
+      ex.timedEndsAt = null;
+      ex.timedDone = true;
+      changed = true;
+      playTimerSound();
+    }
+    refreshTimedButton(i);
+    return changed;
   }
 
   // Shows a running list of how long each completed round took this session (e.g.
@@ -2645,6 +2827,16 @@
   // same engine — see the dayType checks below): counts down the current phase (rest/work)
   // and, on reaching zero, flips to the next phase (playing a sound), logging a completed
   // set once a work phase finishes. Runs off the same 1s ticker as the main elapsed clock.
+  // The name shown on the big line. For a two-sided move mid-work-phase it carries the
+  // side, so the screen alone tells you which way round you should be.
+  function currentMoveLabel(){
+    if(!session || !session.current || !session.current[0]) return "";
+    var base = session.current[0].name || "";
+    var iv = session.interval;
+    if(!base || !iv || iv.phase !== "work" || !isTwoSidedExercise(base)) return base;
+    return base + (iv.onRightSide ? " — RIGHT" : " — LEFT");
+  }
+
   function updateIntervalDisplay(){
     if(!session || (session.dayType !== "interval" && session.dayType !== "circuit") || !session.interval) return;
     var iv = session.interval;
@@ -2659,7 +2851,7 @@
       countdownEl.textContent = "0:00";
       setLabelEl.textContent = "All " + iv.totalSets + " sets complete!";
       badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
-      if(exerciseNameEl && session.current[0]) exerciseNameEl.textContent = session.current[0].name;
+      if(exerciseNameEl) exerciseNameEl.textContent = currentMoveLabel();
       updateIntervalTimelineProgress();
       return;
     }
@@ -2670,7 +2862,7 @@
       countdownEl.textContent = formatQuickTime(Math.ceil(frozenMs/1000));
       setLabelEl.textContent = "Set " + iv.setIndex + " of " + iv.totalSets;
       badge.textContent = "✅ Sets Completed: " + session.rounds.length + " / " + iv.totalSets;
-      if(exerciseNameEl && session.current[0]) exerciseNameEl.textContent = session.current[0].name;
+      if(exerciseNameEl) exerciseNameEl.textContent = currentMoveLabel();
       updateIntervalTimelineProgress();
       return;
     }
@@ -2686,6 +2878,9 @@
       if(iv.phase === "rest"){
         iv.phase = "work";
         iv.phaseEndsAt += iv.workSec * 1000;
+        // Every work phase begins on the left, with the halfway cue still owed.
+        iv.onRightSide = false;
+        iv.sideCued = false;
         playTimerSound();      // rest just ended -> WORK is starting
       } else {
         // A work interval just finished — log it as a completed set. Cloned rather than
@@ -2712,11 +2907,27 @@
       }
       msLeft = iv.finished ? 0 : (iv.phaseEndsAt - Date.now());
     }
+    // Two-sided moves swap at the halfway mark of the work phase. Worked out from the
+    // clock rather than a timer of its own, so it stays correct through a pause, a reload,
+    // or the app being backgrounded across the switch — same reasoning as everything else
+    // on this screen.
+    if(iv.phase === "work" && isTwoSidedExercise(session.current[0] && session.current[0].name)){
+      var workMs = iv.workSec * 1000;
+      var intoWork = workMs - Math.max(0, msLeft);
+      var shouldBeRight = intoWork >= workMs / 2;
+      if(shouldBeRight && !iv.sideCued){
+        iv.sideCued = true;
+        iv.onRightSide = true;
+        playTimerSound();   // "go" — same meaning as a work phase starting
+      } else if(!shouldBeRight){
+        iv.onRightSide = false;
+      }
+    }
     persistSession();
     // Refresh after the transition loop above (not before) — that's where circuit days
     // actually update session.current[0].name for the upcoming exercise, so reading it
     // any earlier in this function would show the exercise that just finished, one set late.
-    if(exerciseNameEl && session.current[0]) exerciseNameEl.textContent = session.current[0].name;
+    if(exerciseNameEl) exerciseNameEl.textContent = currentMoveLabel();
 
     if(iv.finished){
       phaseLabelEl.textContent = "✅ DONE";
@@ -4136,13 +4347,6 @@
     return rounds;
   }
 
-  document.getElementById("manualHistoryToggle").addEventListener("click", function(){
-    var fields = document.getElementById("manualHistoryFields");
-    var chevron = document.getElementById("manualHistoryChevron");
-    var open = fields.style.display !== "none";
-    fields.style.display = open ? "none" : "block";
-    chevron.textContent = open ? "▸ Show" : "▾ Hide";
-  });
 
   document.getElementById("manualDaySelect").addEventListener("change", updateManualFormForDay);
 
