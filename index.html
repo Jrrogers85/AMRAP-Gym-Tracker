@@ -361,8 +361,8 @@
       <h2>Reset</h2>
       <button class="secondary danger" id="resetWeightsBtn" style="margin-top:0;">🧹 Clear Starting Weights (this day)</button>
       <p class="muted" style="font-size:12px; margin:8px 0 0;">Clears the starting weight field back to blank for every exercise on the day currently shown above. Exercise names and rep targets are untouched.</p>
-      <button class="secondary danger" id="resetRepsBtn" style="margin-top:12px;">🔟 Reset Starting Reps to 10 (this day)</button>
-      <p class="muted" style="font-size:12px; margin:8px 0 0;">Resets the rep target back to 10 for every exercise on the day currently shown above. Exercise names and starting weight are untouched.</p>
+      <button class="secondary danger" id="resetRepsBtn" style="margin-top:12px;">↩️ Reset Starting Reps (this day)</button>
+      <p class="muted" style="font-size:12px; margin:8px 0 0;">Resets the rep target back to the default for every exercise on the day currently shown above — 12 reps, or 24 for single-sided moves so each side still gets 12. Exercise names and starting weight are untouched.</p>
       <button class="secondary danger" id="resetSessionBtn" style="margin-top:12px;">🗑 Cancel Stuck Workout Session</button>
       <p class="muted" style="font-size:12px; margin:8px 0 0;">If opening the app drops you straight into an in-progress round with old weights already filled in (instead of the Start Workout screen), tap this to discard that leftover session and reset.</p>
     </div>
@@ -669,7 +669,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-11-a</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-11-b</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -806,7 +806,13 @@
     "Curtsy Lunge", "Split Squat", "Single-leg RDL", "Single-leg Glute Bridge",
     "Plank Shoulder Tap", "Y-Raise", "W-Raise"
   ];
-  var SINGLE_SIDED_DEFAULT_REPS = 20;
+  // One place to change the starting rep target. Single-sided moves get double, so the
+  // per-side split stays a clean whole number (24 -> 12 each side).
+  var DEFAULT_REPS = 12;
+  var SINGLE_SIDED_DEFAULT_REPS = DEFAULT_REPS * 2;
+  function defaultRepsFor(name){
+    return isSingleSidedExercise(name) ? SINGLE_SIDED_DEFAULT_REPS : DEFAULT_REPS;
+  }
   function isSingleSidedExercise(name){
     if(!name) return false;
     var n = String(name).trim().toLowerCase();
@@ -924,11 +930,9 @@
       : "🔁 " + streak + " workout" + (streak === 1 ? "" : "s") + " in a row with these exercises.";
   }
 
-  // Single-sided moves start at 20 so the per-side split is a clean 10 — which is what you'd
-  // otherwise be typing by hand every time one came up.
-  function mkEx(name){
-    return { name:name, reps: isSingleSidedExercise(name) ? SINGLE_SIDED_DEFAULT_REPS : 10, weight:"" };
-  }
+  // Single-sided moves start at double, so the per-side split is a clean half — which is
+  // what you'd otherwise be typing by hand every time one came up.
+  function mkEx(name){ return { name:name, reps: defaultRepsFor(name), weight:"" }; }
 
   // Default lineup for Day 4's ab circuit — the first 12 moves from the pool, in a fixed
   // order (same "just pick a reasonable starting set" approach used for every other day's
@@ -1258,6 +1262,7 @@
       day4CircuitSeeded: true,
       day4CircuitSeededV2: true,
       workoutRotationV2: true,
+      repDefaults12V1: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -1429,6 +1434,32 @@
         }
         cfg.workoutRotationV2 = true;
         starterFoodsChanged = true;
+      }
+      // Rep target default moved from 10 to 12 (and 20 to 24 for single-sided). Only slots
+      // still sitting on an old DEFAULT are touched — anything you'd deliberately typed is
+      // some other number and is left exactly as it is. History is never touched: past
+      // records store what you actually did, and rewriting them would be a lie.
+      if(!cfg.repDefaults12V1){
+        var OLD_DEFAULT = 10, OLD_SINGLE_DEFAULT = 20;
+        var bumpReps = function(ex){
+          if(!ex) return;
+          var r = parseInt(ex.reps, 10);
+          if(isSingleSidedExercise(ex.name)){
+            // A single-sided move on either old default lands on the new doubled default.
+            if(r === OLD_DEFAULT || r === OLD_SINGLE_DEFAULT) ex.reps = SINGLE_SIDED_DEFAULT_REPS;
+          } else if(r === OLD_DEFAULT){
+            ex.reps = DEFAULT_REPS;
+          }
+        };
+        for(var rd = 1; rd <= 7; rd++){
+          var rdd = cfg.days && cfg.days[rd];
+          if(!rdd) continue;
+          if(rdd.supersets) rdd.supersets.forEach(function(ss){ bumpReps(ss.a); bumpReps(ss.b); });
+          if(rdd.exercise) bumpReps(rdd.exercise);
+          if(rdd.exercises) rdd.exercises.forEach(bumpReps);
+        }
+        cfg.repDefaults12V1 = true;
+        starterFoodsChanged = true;   // reuse the existing "config changed, save it" flag
       }
       if(!cfg.soundRolesV1){
         var stockOld = ["beep","chime","buzz","bell"];
@@ -1861,12 +1892,12 @@
       // days rather than leaving them clickable with nothing to do.
       resetWeightsBtn.textContent = "🧹 Clear Starting Weights (" + meta.label + ")";
       resetWeightsBtn.disabled = true;
-      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (" + meta.label + ")";
+      resetRepsBtn.textContent = "↩️ Reset Starting Reps (" + meta.label + ")";
       resetRepsBtn.disabled = true;
     } else {
       resetWeightsBtn.textContent = "🧹 Clear Starting Weights (" + meta.label + ")";
       resetWeightsBtn.disabled = false;
-      resetRepsBtn.textContent = "🔟 Reset Starting Reps to 10 (" + meta.label + ")";
+      resetRepsBtn.textContent = "↩️ Reset Starting Reps (" + meta.label + ")";
       resetRepsBtn.disabled = false;
     }
 
@@ -1957,8 +1988,8 @@
         var field = inp.dataset.field, slot = inp.dataset.slot;
         var val;
         if(inp.type === "number"){
-          val = inp.value === "" ? (field === "weight" ? "" : 10) : parseInt(inp.value, 10);
-          if(isNaN(val)) val = (field === "weight") ? "" : 10;
+          val = inp.value === "" ? (field === "weight" ? "" : DEFAULT_REPS) : parseInt(inp.value, 10);
+          if(isNaN(val)) val = (field === "weight") ? "" : DEFAULT_REPS;
         } else {
           val = inp.value;
         }
@@ -2019,12 +2050,12 @@
       (note ? '<div class="muted" style="font-size:11px; margin:-4px 0 8px 2px;">' + escapeHtml(note) + '</div>' : '');
   }
 
-  // When Auto-Fill drops a single-sided move into a slot that's still on the plain default
-  // of 10, start it at 20 so the per-side split is a clean 10. Only ever nudges the
-  // untouched default upward — a rep count you've deliberately set is never overwritten.
+  // When Auto-Fill drops a single-sided move into a slot that's still on the plain default,
+  // double it so the per-side split is a clean half. Only ever nudges the untouched default
+  // upward — a rep count you've deliberately set is never overwritten.
   function applySingleSidedRepDefault(ex){
     if(!ex) return;
-    if(isSingleSidedExercise(ex.name) && parseInt(ex.reps, 10) === 10){
+    if(isSingleSidedExercise(ex.name) && parseInt(ex.reps, 10) === DEFAULT_REPS){
       ex.reps = SINGLE_SIDED_DEFAULT_REPS;
     }
   }
@@ -2119,23 +2150,24 @@
   document.getElementById("resetRepsBtn").addEventListener("click", function(){
     var day = config.currentDay;
     var dayLabel = DAY_META[day] ? DAY_META[day].label : ("Day " + day);
-    if(!confirm("Reset the starting rep target back to 10 for every exercise in " + dayLabel + "?")) return;
+    if(!confirm("Reset the starting rep target back to the default for every exercise in " + dayLabel +
+      "?\n\n" + DEFAULT_REPS + " reps, or " + SINGLE_SIDED_DEFAULT_REPS + " for single-sided moves.")) return;
     var dd = config.days[day];
     if(dd){
       if(dd.supersets){
         dd.supersets.forEach(function(ss){
-          ss.a.reps = 10;
-          ss.b.reps = 10;
+          ss.a.reps = defaultRepsFor(ss.a.name);
+          ss.b.reps = defaultRepsFor(ss.b.name);
         });
       }
       if(dd.exercise){
-        dd.exercise.reps = 10;
+        dd.exercise.reps = defaultRepsFor(dd.exercise.name);
       }
     }
     saveConfig(config);
     renderSetup();
     updateWorkoutIdleUI();
-    alert("Starting reps reset to 10 for " + dayLabel + ".");
+    alert("Starting reps reset for " + dayLabel + ".");
   });
 
   document.getElementById("resetSessionBtn").addEventListener("click", function(){
@@ -2202,7 +2234,7 @@
       // Only the first move — like interval days, the exercise showing right now is tracked
       // live in session.current[0] as the circuit auto-advances through the rest of the list
       // (see updateIntervalDisplay), not read from this flattened snapshot after the start.
-      var first = (dayData.exercises && dayData.exercises[0]) || { name:"", reps:10, weight:"" };
+      var first = (dayData.exercises && dayData.exercises[0]) || { name:"", reps:DEFAULT_REPS, weight:"" };
       list.push({ name: first.name, targetReps: first.reps, targetWeight: first.weight });
     }
     return list;
@@ -2418,7 +2450,7 @@
     listEl.querySelectorAll("input").forEach(function(inp){
       inp.addEventListener("input", function(){
         var field = inp.dataset.field, slot = inp.dataset.slot;
-        function fallback(){ return field === "weight" ? "" : (field === "holdSec" ? DEFAULT_HOLD_SEC : 10); }
+        function fallback(){ return field === "weight" ? "" : (field === "holdSec" ? DEFAULT_HOLD_SEC : DEFAULT_REPS); }
         var val = inp.value === "" ? fallback() : parseInt(inp.value, 10);
         if(isNaN(val)) val = fallback();
         var target;
