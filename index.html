@@ -669,7 +669,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-11-b</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-14-a</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -3276,10 +3276,21 @@
   //
   // Left to itself, Safari picks "playback" for an <audio> element carrying real sound.
   var AUDIO_SESSION_TYPES = { solo:"transient-solo", duck:"transient", takeover:"playback" };
-  function applyAudioSessionType(){
+  // Assigning navigator.audioSession.type is NOT free: it makes iOS tear down and rebuild
+  // the underlying audio session. Doing that microseconds before play() — which is what
+  // "re-assert it on every beep" used to do — leaves the session mid-reconfiguration when
+  // the clip tries to start, and the beep is silently swallowed. That's one of the two
+  // causes of the occasional missing beep on interval days.
+  // So: only assign when the value actually changes, and re-assert at the few moments iOS
+  // might genuinely have reset it under us (priming, and coming back to the app).
+  var appliedAudioSessionType = null;
+  function applyAudioSessionType(force){
     try{
       if(navigator.audioSession){
-        navigator.audioSession.type = AUDIO_SESSION_TYPES[config.audioShareMode] || "transient";
+        var want = AUDIO_SESSION_TYPES[config.audioShareMode] || "transient";
+        if(!force && appliedAudioSessionType === want) return;
+        navigator.audioSession.type = want;
+        appliedAudioSessionType = want;
       }
     }catch(e){ /* older iOS / other browsers simply don't have this lever */ }
   }
@@ -3409,6 +3420,12 @@
       el.setAttribute("playsinline", "");
       el.preload = "auto";
       el.src = beepWavFor(key);
+      // Rewind the moment it finishes, NOT at the moment the next beep is needed. Seeking
+      // is asynchronous, so doing it here — with 40-plus seconds of slack before the next
+      // interval boundary — means the play() call itself never has to wait on a seek.
+      el.addEventListener("ended", function(){
+        try{ el.currentTime = 0; }catch(e){}
+      });
       beepPlayers[key] = el;
     }
     return beepPlayers[key];
@@ -3435,24 +3452,67 @@
     }catch(e){}
   }
   function primeBeepPlayers(){
-    applyAudioSessionType();
+    applyAudioSessionType(true);   // force: this is a real tap, and the session may be stale
     activeSoundKeys().forEach(function(k){
       unlockPlayer(playerFor(k));
       primedKeys[k] = true;
     });
   }
+  // Running tally, surfaced on the Setup tab. A beep that goes missing mid-workout leaves no
+  // trace otherwise, and there's no way to open a console on a phone at the gym.
+  var beepStats = { asked: 0, refused: 0, retried: 0 };
+
   function playFallbackBeep(key){
     try{
-      applyAudioSessionType();  // re-asserted per beep; cheap, and iOS can reset it on us
       var el = playerFor(key);
       el.volume = 1;
-      try{ el.currentTime = 0; }catch(e){}
-      var p = el.play();
-      if(p && p.catch) p.catch(function(err){ console.warn("[AMRAP sound] beep refused:", err); });
+      beepStats.asked++;
+      startBeepElement(el, true);
       return true;
     }catch(err){
       console.error("[AMRAP sound] fallback beep threw:", err);
       return false;
+    }
+  }
+
+  // The second cause of the missing beeps. Setting currentTime starts an ASYNCHRONOUS seek;
+  // calling play() while that seek is still in flight can begin playback at the old position
+  // — the very end of a finished clip — which is audible silence even though play() itself
+  // resolves happily. The 'ended' rewind above means the common path needs no seek at all;
+  // when one IS needed we now wait for it to land instead of racing it.
+  function startBeepElement(el, allowRetry){
+    if(!el.paused || el.currentTime > 0.02){
+      try{ el.pause(); }catch(e){}
+      try{ el.currentTime = 0; }catch(e){}
+    }
+    beepPlayNow(el, allowRetry, 0);
+  }
+
+  // el.seeking is the media spec's own "the engine hasn't landed on the new position yet"
+  // flag — far better than guessing at a delay, which is what made the first attempt at this
+  // fix still drop the occasional beep when a seek ran long. Poll it briefly, then play.
+  // The ceiling (about a quarter second) means a pathological seek yields a slightly late
+  // beep rather than no beep and no timer.
+  function beepPlayNow(el, allowRetry, waits){
+    waits = waits || 0;
+    if(el.seeking && waits < 12){
+      setTimeout(function(){ beepPlayNow(el, allowRetry, waits + 1); }, 20);
+      return;
+    }
+    var p;
+    try{ p = el.play(); }catch(e){ p = null; }
+    if(p && p.catch){
+      p.catch(function(err){
+        beepStats.refused++;
+        console.warn("[AMRAP sound] beep refused:", err && err.name, err);
+        if(allowRetry){
+          // One quick retry. A beep 80ms late is imperceptible against a 40-second
+          // interval; a beep that never arrives costs you the rep.
+          beepStats.retried++;
+          setTimeout(function(){ startBeepElement(el, false); }, 80);
+        }
+        renderAudioStatus();
+      });
     }
   }
   // Flashes any tapped button with a quick brightness pulse (see the .tap-flash keyframe in
@@ -3497,8 +3557,12 @@
     var line = supported
       ? ("Sharing control: ✅ supported · mode: " + current)
       : ("Sharing control: ❌ NOT supported on this iPhone — other apps' audio will always stop");
+    var tally = beepStats.asked
+      ? (" · beeps: " + beepStats.asked +
+         (beepStats.refused ? " (" + beepStats.refused + " refused, " + beepStats.retried + " retried)" : " (0 refused)"))
+      : "";
     el.textContent = line + " · beeps ready: " + (allActiveSoundsPrimed() ? "yes" : "not yet") +
-                     " · last beep: " + lastBeepPath;
+                     " · last beep: " + lastBeepPath + tally;
   }
 
   // iOS needs ONE gesture-backed play() before it will let the beep player fire on its own
@@ -3526,7 +3590,7 @@
     return activeSoundKeys().every(function(k){ return primedKeys[k]; });
   }
   function ensureBeepPermission(){
-    applyAudioSessionType();
+    applyAudioSessionType(true);   // gesture-backed, so a forced re-assert is safe here
     if(!allActiveSoundsPrimed()) primeBeepPlayers();
     renderAudioStatus();
   }
