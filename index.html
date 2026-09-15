@@ -114,6 +114,21 @@
   .exercise-log-row .name{font-size:15px;}
   .exercise-log-row .name small{display:block; color:var(--muted); font-size:11px; margin-top:2px;}
   .exercise-log-row input{text-align:center;}
+  /* Setup's per-exercise controls. Deliberately quiet: dimmed until the toggle is on, so a
+     screen full of them reads as one calm row each rather than a wall of checkboxes. */
+  .setup-ex-controls{display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-2px 0 0;}
+  .one-sided-toggle{
+    display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none;
+    font-size:12px; color:var(--muted); opacity:0.75; transition:opacity .15s, color .15s;
+  }
+  .one-sided-toggle.on{color:var(--accent2); opacity:1; font-weight:600;}
+  .one-sided-toggle input[type=checkbox]{
+    width:20px; height:20px; margin:0; flex:none; accent-color:var(--accent2); cursor:pointer;
+  }
+  .setup-reps-wrap{display:flex; align-items:center; gap:5px; flex:none;}
+  .setup-reps-wrap input{width:58px; text-align:center; margin:0; padding:6px 4px; font-size:14px;}
+  .setup-side-note:empty{display:none;}
+  .setup-exercise + .setup-exercise{margin-top:12px; padding-top:12px; border-top:1px solid var(--border);}
   .col-head{display:grid; grid-template-columns:1fr 70px 70px; gap:8px; font-size:13px; color:var(--accent2); font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px;}
   .col-head div:not(:first-child){text-align:center;}
   .rest-screen{text-align:center; padding:30px 0;}
@@ -669,7 +684,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-14-a</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-15-a</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -810,18 +825,41 @@
   // per-side split stays a clean whole number (24 -> 12 each side).
   var DEFAULT_REPS = 12;
   var SINGLE_SIDED_DEFAULT_REPS = DEFAULT_REPS * 2;
-  function defaultRepsFor(name){
-    return isSingleSidedExercise(name) ? SINGLE_SIDED_DEFAULT_REPS : DEFAULT_REPS;
-  }
   function isSingleSidedExercise(name){
     if(!name) return false;
     var n = String(name).trim().toLowerCase();
     return SINGLE_SIDED_EXERCISES.some(function(t){ return t.toLowerCase() === n; });
   }
-  // "20 reps" -> "10 each side". Odd totals can't split evenly, so say so honestly rather
-  // than rounding and quietly under- or over-counting one side.
-  function perSideNote(name, reps){
-    if(!isSingleSidedExercise(name)) return "";
+
+  // The list above is only a DEFAULT. Whether a movement is one side at a time depends on
+  // what you picked up, not on its name — a preacher curl is one-sided with a dumbbell and
+  // two-handed with a bar. So each slot stores its own answer, and that stored answer wins.
+  // ex.oneSided is set for every slot by a one-time migration, so the fallback to the name
+  // list below only ever applies to something built before that ran.
+  function isOneSided(ex){
+    if(!ex) return false;
+    if(typeof ex.oneSided === "boolean") return ex.oneSided;
+    return isSingleSidedExercise(ex.name);
+  }
+  function defaultRepsForEx(ex){
+    return isOneSided(ex) ? SINGLE_SIDED_DEFAULT_REPS : DEFAULT_REPS;
+  }
+  // Moves the rep target when the sidedness changes — but ONLY if it's currently sitting on
+  // one of the two defaults. A number you typed on purpose (16, say) is yours and stays.
+  function reconcileRepsToSidedness(ex){
+    if(!ex) return false;
+    var r = parseInt(ex.reps, 10);
+    if(r !== DEFAULT_REPS && r !== SINGLE_SIDED_DEFAULT_REPS) return false;
+    var want = defaultRepsForEx(ex);
+    if(r === want) return false;
+    ex.reps = want;
+    return true;
+  }
+  // "24 reps" -> "12 each side". Odd totals can't split evenly, so say so honestly rather
+  // than rounding and quietly under- or over-counting one side. Takes the exercise object
+  // (not just a name) so it reads the stored one-sided flag rather than re-guessing.
+  function perSideNote(ex, reps){
+    if(!isOneSided(ex)) return "";
     var r = parseInt(reps, 10);
     if(!(r > 0)) return "each side";
     if(r % 2 === 0) return (r/2) + " each side";
@@ -932,7 +970,10 @@
 
   // Single-sided moves start at double, so the per-side split is a clean half — which is
   // what you'd otherwise be typing by hand every time one came up.
-  function mkEx(name){ return { name:name, reps: defaultRepsFor(name), weight:"" }; }
+  function mkEx(name){
+    var one = isSingleSidedExercise(name);
+    return { name:name, reps: one ? SINGLE_SIDED_DEFAULT_REPS : DEFAULT_REPS, weight:"", oneSided: one };
+  }
 
   // Default lineup for Day 4's ab circuit — the first 12 moves from the pool, in a fixed
   // order (same "just pick a reasonable starting set" approach used for every other day's
@@ -1263,6 +1304,7 @@
       day4CircuitSeededV2: true,
       workoutRotationV2: true,
       repDefaults12V1: true,
+      oneSidedFlagV1: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -1460,6 +1502,23 @@
         }
         cfg.repDefaults12V1 = true;
         starterFoodsChanged = true;   // reuse the existing "config changed, save it" flag
+      }
+      // One-sidedness becomes a per-exercise setting you control, instead of something the
+      // app infers from the name every time. Seed each slot from what the name list says
+      // today, so nothing changes the moment this lands — after that it's yours.
+      if(!cfg.oneSidedFlagV1){
+        var seedOneSided = function(ex){
+          if(ex && typeof ex.oneSided !== "boolean") ex.oneSided = isSingleSidedExercise(ex.name);
+        };
+        for(var od = 1; od <= 7; od++){
+          var odd = cfg.days && cfg.days[od];
+          if(!odd) continue;
+          if(odd.supersets) odd.supersets.forEach(function(ss){ seedOneSided(ss.a); seedOneSided(ss.b); });
+          if(odd.exercise) seedOneSided(odd.exercise);
+          if(odd.exercises) odd.exercises.forEach(seedOneSided);
+        }
+        cfg.oneSidedFlagV1 = true;
+        starterFoodsChanged = true;
       }
       if(!cfg.soundRolesV1){
         var stockOld = ["beep","chime","buzz","bell"];
@@ -1983,9 +2042,40 @@
     // live auto-save: every keystroke writes straight into config, no Save button needed
     // (scoped to inputs with a data-field, so the interval timing inputs above — which
     // manage their own dayData.restSec/workSec — aren't double-handled here)
+    // Which config object a given control is editing.
+    function slotFor(inp){
+      if(meta.type === "supersets") return dayData.supersets[parseInt(inp.dataset.ss, 10)][inp.dataset.slot];
+      if(meta.type === "circuit")   return dayData.exercises[parseInt(inp.dataset.ss, 10)];
+      return dayData.exercise;
+    }
+    function refreshSetupSideNote(inp, target){
+      var el = list.querySelector('[data-sidenote="' + inp.dataset.ss + '-' + inp.dataset.slot + '"]');
+      if(el) el.textContent = perSideNote(target, target.reps);
+      var box = inp.closest(".setup-ex-controls");
+      var lbl = box && box.querySelector(".one-sided-toggle");
+      if(lbl) lbl.classList.toggle("on", isOneSided(target));
+      var repsInput = box && box.querySelector('input[data-field="reps"]');
+      if(repsInput && String(repsInput.value) !== String(target.reps)) repsInput.value = target.reps;
+    }
+
     list.querySelectorAll("input[data-field]").forEach(function(inp){
+      // The one-sided checkbox is the exercise's own setting and overrides the name list
+      // entirely. Ticking it moves the rep target between the two defaults, but never
+      // touches a number you typed yourself.
+      if(inp.dataset.field === "oneSided"){
+        inp.addEventListener("change", function(){
+          var target = slotFor(inp);
+          target.oneSided = inp.checked;
+          reconcileRepsToSidedness(target);
+          refreshSetupSideNote(inp, target);
+          saveConfig(config);
+          updateWorkoutIdleUI();
+        });
+        return;
+      }
+
       inp.addEventListener("input", function(){
-        var field = inp.dataset.field, slot = inp.dataset.slot;
+        var field = inp.dataset.field;
         var val;
         if(inp.type === "number"){
           val = inp.value === "" ? (field === "weight" ? "" : DEFAULT_REPS) : parseInt(inp.value, 10);
@@ -1993,15 +2083,9 @@
         } else {
           val = inp.value;
         }
-        if(meta.type === "supersets"){
-          var idx = parseInt(inp.dataset.ss, 10);
-          dayData.supersets[idx][slot][field] = val;
-        } else if(meta.type === "circuit"){
-          var cIdx = parseInt(inp.dataset.ss, 10);
-          dayData.exercises[cIdx][field] = val;
-        } else {
-          dayData.exercise[field] = val;
-        }
+        var target = slotFor(inp);
+        target[field] = val;
+        if(field === "reps") refreshSetupSideNote(inp, target);
         if(field === "name"){
           // Swapping which exercise is used resets the "in a row" streak — reps/weight
           // edits (the other fields this same listener handles) are normal progression,
@@ -2014,7 +2098,26 @@
           renderDayStreakNote(day);
         }
         saveConfig(config);
+        updateWorkoutIdleUI();
       });
+
+      // Typing a different exercise into a slot means you've picked a different movement,
+      // so its sidedness (and therefore its rep target) is re-derived from the name list.
+      // On 'change' rather than 'input', so it settles once when you're done typing instead
+      // of flickering through every half-finished word.
+      if(inp.dataset.field === "name"){
+        inp.addEventListener("change", function(){
+          var target = slotFor(inp);
+          var guess = isSingleSidedExercise(target.name);
+          if(target.oneSided !== guess){
+            target.oneSided = guess;
+            reconcileRepsToSidedness(target);
+            saveConfig(config);
+            renderSetup();
+            updateWorkoutIdleUI();
+          }
+        });
+      }
     });
 
     var lockBtn = document.getElementById("lockToggleBtn");
@@ -2032,11 +2135,12 @@
 
   // A one-line "how this move behaves" tag, so the special cases are visible in Setup
   // rather than only revealing themselves mid-workout.
+  // Single-sidedness is deliberately NOT here any more — it has its own checkbox now, and
+  // saying it twice on the same row would just be noise.
   function exerciseBehaviourNote(name){
     if(isHoldExercise(name))      return "held for time";
     if(isTimedRepExercise(name))  return "timed set — as many reps as you can get";
     if(isTwoSidedExercise(name))  return "one side at a time — swaps halfway";
-    if(isSingleSidedExercise(name)) return "one side at a time — reps are the total for both";
     return "";
   }
 
@@ -2044,20 +2148,45 @@
     // "dis" (locked state) disables the exercise name. Rep targets and starting weight are
     // set on the Workout tab instead, so Setup only manages which exercises are used.
     var note = exerciseBehaviourNote(ex.name);
-    return '<div class="exercise-row">' +
-      '<input type="text" '+dis+' data-ss="'+idx+'" data-slot="'+slot+'" data-field="name" value="'+escapeHtml(ex.name)+'" placeholder="Exercise name">' +
+    var one = isOneSided(ex);
+    var hold = isHoldExercise(ex.name);
+    // Holds have no reps at all, so neither control applies to them.
+    var controls = hold ? "" :
+      '<div class="setup-ex-controls">' +
+        '<label class="one-sided-toggle' + (one ? " on" : "") + '">' +
+          '<input type="checkbox" data-ss="'+idx+'" data-slot="'+slot+'" data-field="oneSided"' +
+            (one ? " checked" : "") + '>' +
+          '<span>one side at a time</span>' +
+        '</label>' +
+        '<span class="setup-reps-wrap">' +
+          '<input type="number" inputmode="numeric" min="1" max="99" ' +
+            'data-ss="'+idx+'" data-slot="'+slot+'" data-field="reps" value="'+ex.reps+'">' +
+          '<span class="muted" style="font-size:11px;">reps</span>' +
+        '</span>' +
       '</div>' +
-      (note ? '<div class="muted" style="font-size:11px; margin:-4px 0 8px 2px;">' + escapeHtml(note) + '</div>' : '');
+      '<div class="muted setup-side-note" data-sidenote="'+idx+'-'+slot+'" style="font-size:11px; margin:2px 0 8px 2px;">' +
+        escapeHtml(perSideNote(ex, ex.reps)) + '</div>';
+    // Wrapped so one exercise and its own controls are a single unit in the DOM — a
+    // superset card holds two of these, and without the wrapper "the checkbox in this card"
+    // is ambiguous.
+    return '<div class="setup-exercise" data-ex="'+idx+'-'+slot+'">' +
+      '<div class="exercise-row">' +
+        '<input type="text" '+dis+' data-ss="'+idx+'" data-slot="'+slot+'" data-field="name" value="'+escapeHtml(ex.name)+'" placeholder="Exercise name">' +
+      '</div>' +
+      (note ? '<div class="muted" style="font-size:11px; margin:-4px 0 6px 2px;">' + escapeHtml(note) + '</div>' : '') +
+      controls +
+    '</div>';
   }
 
   // When Auto-Fill drops a single-sided move into a slot that's still on the plain default,
   // double it so the per-side split is a clean half. Only ever nudges the untouched default
   // upward — a rep count you've deliberately set is never overwritten.
+  // Auto-Fill picks a brand new exercise for the slot, so its sidedness is re-derived from
+  // the name list — the same "you chose a different movement" reasoning as a manual rename.
   function applySingleSidedRepDefault(ex){
     if(!ex) return;
-    if(isSingleSidedExercise(ex.name) && parseInt(ex.reps, 10) === DEFAULT_REPS){
-      ex.reps = SINGLE_SIDED_DEFAULT_REPS;
-    }
+    ex.oneSided = isSingleSidedExercise(ex.name);
+    reconcileRepsToSidedness(ex);
   }
 
   document.getElementById("lockToggleBtn").addEventListener("click", function(){
@@ -2094,6 +2223,7 @@
       var picks = shuffle(meta.pool);
       dayData.exercises.forEach(function(ex, i){
         ex.name = picks[i % picks.length];
+        applySingleSidedRepDefault(ex);
       });
     }
     // Auto-Fill changes names directly rather than through the input listener above, so
@@ -2156,12 +2286,12 @@
     if(dd){
       if(dd.supersets){
         dd.supersets.forEach(function(ss){
-          ss.a.reps = defaultRepsFor(ss.a.name);
-          ss.b.reps = defaultRepsFor(ss.b.name);
+          ss.a.reps = defaultRepsForEx(ss.a);
+          ss.b.reps = defaultRepsForEx(ss.b);
         });
       }
       if(dd.exercise){
-        dd.exercise.reps = defaultRepsFor(dd.exercise.name);
+        dd.exercise.reps = defaultRepsForEx(dd.exercise);
       }
     }
     saveConfig(config);
@@ -2225,11 +2355,13 @@
     var list = [];
     if(type === "supersets"){
       dayData.supersets.forEach(function(ss){
-        list.push({ name: ss.a.name, targetReps: ss.a.reps, targetWeight: ss.a.weight, targetHoldSec: holdTargetFor(ss.a) });
-        list.push({ name: ss.b.name, targetReps: ss.b.reps, targetWeight: ss.b.weight, targetHoldSec: holdTargetFor(ss.b) });
+        // oneSided travels with the entry so the live workout screen shows the per-side
+        // split from YOUR setting, not by re-guessing from the name.
+        list.push({ name: ss.a.name, oneSided: isOneSided(ss.a), targetReps: ss.a.reps, targetWeight: ss.a.weight, targetHoldSec: holdTargetFor(ss.a) });
+        list.push({ name: ss.b.name, oneSided: isOneSided(ss.b), targetReps: ss.b.reps, targetWeight: ss.b.weight, targetHoldSec: holdTargetFor(ss.b) });
       });
     } else if(type === "single" || type === "timed" || type === "interval"){
-      list.push({ name: dayData.exercise.name, targetReps: dayData.exercise.reps, targetWeight: dayData.exercise.weight });
+      list.push({ name: dayData.exercise.name, oneSided: isOneSided(dayData.exercise), targetReps: dayData.exercise.reps, targetWeight: dayData.exercise.weight });
     } else if(type === "circuit"){
       // Only the first move — like interval days, the exercise showing right now is tracked
       // live in session.current[0] as the circuit auto-advances through the rest of the list
@@ -2248,7 +2380,9 @@
       // actually entered last round.
       var prevWeight = prevRound ? prevRound[i].weight : (ex.targetWeight || "");
       var prevReps = prevRound ? prevRound[i].reps : ex.targetReps;
-      var entry = { name: ex.name, targetReps: ex.targetReps, weight: prevWeight, reps: prevReps };
+      // oneSided must be copied onto the entry, not left to be re-guessed from the name —
+      // otherwise unticking a move in Setup has no effect once the workout starts.
+      var entry = { name: ex.name, oneSided: !!ex.oneSided, targetReps: ex.targetReps, weight: prevWeight, reps: prevReps };
       // Held-for-time exercises carry their own little timer instead of reps/weight. heldSec
       // starts at zero each round — a fresh round means a fresh hold to earn.
       if(isHoldExercise(ex.name)){
@@ -2424,7 +2558,7 @@
       // replacement for the numbers — so the only difference here is the caption.
       var sub = isTimedRepExercise(ex.name)
         ? (timedRepTargetFor(ex) + "s — as many reps as you can")
-        : perSideNote(ex.name, ex.reps);
+        : perSideNote(ex, ex.reps);
       return '<div class="exercise-row">' +
         '<div style="flex:1; min-width:0; font-size:15px;">' + escapeHtml(ex.name) +
           (sub ? '<div class="muted" style="font-size:11px;" data-perside="'+idx+'-'+slot+'">' + escapeHtml(sub) + '</div>' : '') +
@@ -2467,7 +2601,7 @@
           if(noteEl){
             var t = isTimedRepExercise(target.name)
               ? (timedRepTargetFor(target) + "s — as many reps as you can")
-              : perSideNote(target.name, val);
+              : perSideNote(target, val);
             noteEl.textContent = t;
           }
         }
@@ -2705,7 +2839,7 @@
       } else {
         // The per-side note is driven off the LIVE rep value, not the target, so it keeps
         // pace as you edit — change 20 to 24 and it says "12 each side" immediately.
-        var side = perSideNote(ex.name, ex.reps);
+        var side = perSideNote(ex, ex.reps);
         var sub = 'target ' + ex.targetReps + ' reps' + (side ? ' &middot; ' + side : '');
         var timerBtn = ex.isTimedRep
           ? '<button class="secondary timedBtn" id="timedBtn-'+i+'" data-i="'+i+'" ' +
@@ -2740,7 +2874,7 @@
     var el = document.getElementById("perSide-" + i);
     if(!el || !session || !session.current[i]) return;
     var ex = session.current[i];
-    var side = perSideNote(ex.name, ex.reps);
+    var side = perSideNote(ex, ex.reps);
     el.innerHTML = 'target ' + ex.targetReps + ' reps' + (side ? ' &middot; ' + side : '');
   }
 
