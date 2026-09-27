@@ -684,7 +684,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-15-a</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-27-b</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -708,15 +708,19 @@
   var STORAGE_DELETED_NUTRITION_IDS = "amrap_deleted_nutrition_ids_v1";
 
   // ---------- Exercise pools (used by Auto-Fill, themed per day) ----------
+  // Machine-loaded movements sit alongside the bodyweight/dumbbell ones: they're the
+  // options that can actually be loaded heavily enough for low-rep work.
   var PUSH_EXERCISES = [
     "Push-up", "Incline Push-up", "Diamond Push-up", "Pike Push-up",
     "DB Shoulder Press", "DB Chest Press", "DB Floor Press", "Arnold Press",
-    "Tricep Dip", "Overhead Tricep Extension", "DB Squat Press", "Landmine Press"
+    "Tricep Dip", "Overhead Tricep Extension", "DB Squat Press", "Landmine Press",
+    "Smith Bench Press", "Smith Incline Press", "Cable Chest Press", "Cable Incline Press"
   ];
   var PULL_EXERCISES = [
     "DB Row", "Bent-over Row", "Inverted Row", "Renegade Row",
     "Single-arm Row", "DB Pullover", "Face Pull", "Band Pull-apart",
-    "Reverse Fly", "Plank Row", "Chin-up", "Lat Pulldown"
+    "Reverse Fly", "Plank Row", "Chin-up", "Lat Pulldown",
+    "Smith Bent-over Row", "Weighted Pull-up", "Cable Row"
   ];
   // Legs split the way most coaches actually carve up lower body: knee-dominant work (quads
   // driving) against hip-dominant work (posterior chain — glutes and hamstrings). They're
@@ -724,12 +728,14 @@
   var LEGS_PUSH_EXERCISES = [
     "Goblet Squat", "Reverse Lunge", "Bulgarian Split Squat", "Walking Lunge",
     "Step-up", "Sumo Squat", "Curtsy Lunge", "Front Squat",
-    "Box Jump", "Wall Sit", "Leg Press", "Split Squat"
+    "Box Jump", "Wall Sit", "Leg Press", "Split Squat",
+    "Smith Machine Squat", "Smith Split Squat", "Leg Extension"
   ];
   var LEGS_PULL_EXERCISES = [
     "Romanian Deadlift", "Single-leg RDL", "Kettlebell Swing", "Hip Thrust",
     "Glute Bridge", "Good Morning", "Hamstring Curl", "Deadlift",
-    "Cable Pull-through", "Reverse Hyper", "Single-leg Glute Bridge", "Nordic Curl"
+    "Cable Pull-through", "Reverse Hyper", "Single-leg Glute Bridge", "Nordic Curl",
+    "Smith Hip Thrust", "Smith Romanian Deadlift", "Leg Curl"
   ];
   // Shoulders split into pressing vs pulling. Worth doing for more than volume: nearly
   // everyone presses far more than they pull at the shoulder, and that imbalance is a common
@@ -737,7 +743,8 @@
   var SHOULDER_PUSH_EXERCISES = [
     "DB Shoulder Press", "Arnold Press", "Pike Push-up", "Landmine Press",
     "Push Press", "Lateral Raise", "Front Raise", "Bottoms-up Press",
-    "Z Press", "Single-arm OHP", "Cuban Press", "DB Squat Press"
+    "Z Press", "Single-arm OHP", "Cuban Press", "DB Squat Press",
+    "Cable Shoulder Press", "Smith Shoulder Press"
   ];
   var SHOULDER_PULL_EXERCISES = [
     "Face Pull", "Rear Delt Fly", "Band Pull-apart", "Y-Raise",
@@ -774,6 +781,28 @@
   // reps/weight boxes. Matching is by name so Auto-Fill just works without any setup.
   // Adding more later is a one-line job — the plank family is deliberately left out for now
   // because it only appears on Day 4, which is already entirely time-based.
+  // ---------- Heavy-day starting points ----------
+  // Two supersets instead of four, six reps instead of twelve, and only movements that can
+  // actually be loaded heavily — no push-ups or inverted rows, which run out of resistance
+  // long before six reps becomes hard. Heaviest-loadable pair goes first, while you're
+  // freshest. Each day pairs a press with a pull so one recovers while the other works.
+  // This is a STARTING POINT, not a prescription: it lands in an editable preset that you
+  // own from that moment on.
+  // Only Chest & Back and Legs are offered. Shoulders' pulling side is small stabiliser
+  // work that doesn't belong under heavy load, and arms are too small for six-rep work to
+  // make much sense — those days stay as conditioning.
+  var HEAVY_TEMPLATES = {
+    1: { name: "Heavy", supersets: [
+           { a:"Smith Bench Press",   b:"Lat Pulldown" },
+           { a:"Cable Incline Press", b:"Smith Bent-over Row" }
+         ]},
+    3: { name: "Heavy", supersets: [
+           { a:"Bulgarian Split Squat", b:"Smith Romanian Deadlift" },
+           { a:"Smith Machine Squat",   b:"Smith Hip Thrust" }
+         ]}
+  };
+  var HEAVY_REPS = 6;
+
   var HOLD_EXERCISES = ["Wall Sit"];
   var DEFAULT_HOLD_SEC = 60;
 
@@ -966,6 +995,83 @@
     note.textContent = streak === 0
       ? "🔁 New lineup — no completed workouts with these exercises yet."
       : "🔁 " + streak + " workout" + (streak === 1 ? "" : "s") + " in a row with these exercises.";
+  }
+
+  // ---------- Saved setups ("presets") ----------
+  // A day can hold several complete configurations — a conditioning one and a heavy one,
+  // say — and switch between them in a tap. This is the safety net as well as the
+  // convenience: saving before you experiment means the old version exists permanently
+  // rather than for the length of an undo.
+  // A snapshot deliberately captures everything that defines the day's work: exercises,
+  // their rep targets and starting weights, the one-sided flags, hold seconds, and the
+  // interval timings. History is never part of it — that records what you actually did.
+  function snapshotDay(day){
+    var dd = config.days[day] || {};
+    var snap = {};
+    if(dd.supersets) snap.supersets = JSON.parse(JSON.stringify(dd.supersets));
+    if(dd.exercise)  snap.exercise  = JSON.parse(JSON.stringify(dd.exercise));
+    if(dd.exercises) snap.exercises = JSON.parse(JSON.stringify(dd.exercises));
+    if(dd.workSec != null) snap.workSec = dd.workSec;
+    if(dd.restSec != null) snap.restSec = dd.restSec;
+    return snap;
+  }
+  function applySnapshotToDay(day, snap){
+    var dd = config.days[day] || (config.days[day] = {});
+    if(snap.supersets) dd.supersets = JSON.parse(JSON.stringify(snap.supersets));
+    if(snap.exercise)  dd.exercise  = JSON.parse(JSON.stringify(snap.exercise));
+    if(snap.exercises) dd.exercises = JSON.parse(JSON.stringify(snap.exercises));
+    if(snap.workSec != null) dd.workSec = snap.workSec;
+    if(snap.restSec != null) dd.restSec = snap.restSec;
+    // The lineup has changed wholesale, so the "same exercises in a row" streak restarts.
+    dd.exerciseNamesSnapshot = dayExerciseSignature(day);
+    dd.exerciseStreak = 0;
+  }
+  function dayPresets(day){
+    var dd = config.days[day] || (config.days[day] = {});
+    if(!Array.isArray(dd.presets)) dd.presets = [];
+    return dd.presets;
+  }
+  function findPreset(day, id){
+    return dayPresets(day).filter(function(p){ return p.id === id; })[0] || null;
+  }
+  function savePresetForDay(day, name, snapOverride){
+    var presets = dayPresets(day);
+    var clean = String(name || "").trim().slice(0, 40);
+    if(!clean) return null;
+    var existing = presets.filter(function(p){ return p.name.toLowerCase() === clean.toLowerCase(); })[0];
+    var snap = snapOverride || snapshotDay(day);
+    if(existing){
+      existing.data = snap;                 // overwrite by name — "save" means "save"
+      config.days[day].activePresetId = existing.id;
+      return existing;
+    }
+    var preset = { id: "p" + Date.now() + Math.random().toString(36).slice(2,6), name: clean, data: snap };
+    presets.push(preset);
+    config.days[day].activePresetId = preset.id;
+    return preset;
+  }
+  function loadPresetIntoDay(day, id){
+    var p = findPreset(day, id);
+    if(!p) return false;
+    applySnapshotToDay(day, p.data);
+    config.days[day].activePresetId = id;
+    return true;
+  }
+
+  // Builds (or rebuilds) the ready-made heavy setup for a day, without disturbing whatever
+  // is currently loaded — it goes straight into a saved preset for you to switch to.
+  function buildHeavyPreset(day){
+    var tpl = HEAVY_TEMPLATES[day];
+    if(!tpl) return null;
+    var snap = { supersets: tpl.supersets.map(function(pair){
+      var a = mkEx(pair.a), b = mkEx(pair.b);
+      // Heavy means six working reps — doubled for anything done one side at a time, so
+      // each side still gets six.
+      a.reps = isOneSided(a) ? HEAVY_REPS * 2 : HEAVY_REPS;
+      b.reps = isOneSided(b) ? HEAVY_REPS * 2 : HEAVY_REPS;
+      return { a:a, b:b };
+    })};
+    return savePresetForDay(day, tpl.name, snap);
   }
 
   // Single-sided moves start at double, so the per-side split is a clean half — which is
@@ -1305,6 +1411,8 @@
       workoutRotationV2: true,
       repDefaults12V1: true,
       oneSidedFlagV1: true,
+      dayPresetsV1: true,
+      presetsRetiredV1: true,
       profile: { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" },
       days: {
         1: { locked:false, supersets: [
@@ -1506,6 +1614,38 @@
       // One-sidedness becomes a per-exercise setting you control, instead of something the
       // app infers from the name every time. Seed each slot from what the name list says
       // today, so nothing changes the moment this lands — after that it's yours.
+      // The Saved Setups feature was removed as over-built. Any day left sitting on a
+      // snapshot other than the one it started from is put back to its "Conditioning"
+      // copy — that's the original layout, saved automatically before the heavy version
+      // was ever created. Runs once, changes nothing on days that never used a preset,
+      // and the snapshots themselves are kept rather than deleted.
+      if(!cfg.presetsRetiredV1){
+        for(var qd = 1; qd <= 7; qd++){
+          var qdd = cfg.days && cfg.days[qd];
+          if(!qdd || !Array.isArray(qdd.presets) || !qdd.presets.length) continue;
+          var original = qdd.presets.filter(function(p){
+            return String(p.name || "").toLowerCase() === "conditioning"; })[0];
+          if(original && qdd.activePresetId && qdd.activePresetId !== original.id){
+            var snap = original.data || {};
+            if(snap.supersets) qdd.supersets = JSON.parse(JSON.stringify(snap.supersets));
+            if(snap.exercise)  qdd.exercise  = JSON.parse(JSON.stringify(snap.exercise));
+            if(snap.exercises) qdd.exercises = JSON.parse(JSON.stringify(snap.exercises));
+            if(snap.workSec != null) qdd.workSec = snap.workSec;
+            if(snap.restSec != null) qdd.restSec = snap.restSec;
+          }
+          delete qdd.activePresetId;
+        }
+        cfg.presetsRetiredV1 = true;
+        starterFoodsChanged = true;
+      }
+      // Every day gets a presets array so nothing downstream has to null-check it.
+      if(!cfg.dayPresetsV1){
+        for(var pd = 1; pd <= 7; pd++){
+          if(cfg.days && cfg.days[pd] && !Array.isArray(cfg.days[pd].presets)) cfg.days[pd].presets = [];
+        }
+        cfg.dayPresetsV1 = true;
+        starterFoodsChanged = true;
+      }
       if(!cfg.oneSidedFlagV1){
         var seedOneSided = function(ex){
           if(ex && typeof ex.oneSided !== "boolean") ex.oneSided = isSingleSidedExercise(ex.name);
@@ -1980,15 +2120,62 @@
     var locked = !!dayData.locked;
     var dis = locked ? "disabled" : "";
 
+    // The Saved Setups card used to render here. It was removed as over-built for the
+    // actual need — switching between a conditioning and a heavy layout a couple of times
+    // a year, which Add/Remove Superset plus editing the rep box already covers. Any
+    // snapshots previously saved are LEFT in the config, untouched and inert, so nothing
+    // is destroyed and bringing the feature back would be a UI change rather than a
+    // re-entry job.
+
     if(meta.type === "supersets"){
       dayData.supersets.forEach(function(ss, idx){
         var card = document.createElement("div");
         card.className = "card";
+        // The remove button is hidden on the last remaining superset — a day with no
+        // exercises isn't a state worth supporting.
+        var canRemove = !locked && dayData.supersets.length > 1;
         card.innerHTML =
-          '<p class="superset-title">Superset ' + (idx+1) + '</p>' +
+          '<div class="flex-between" style="align-items:center;">' +
+            '<p class="superset-title" style="margin:0;">Superset ' + (idx+1) + '</p>' +
+            (canRemove ? '<button class="secondary danger removeSupersetBtn" data-idx="'+idx+'" ' +
+              'style="margin:0; padding:3px 10px; font-size:12px; width:auto;">Remove</button>' : '') +
+          '</div>' +
           exerciseFieldHtml(idx, "a", ss.a, dis) +
           exerciseFieldHtml(idx, "b", ss.b, dis);
         list.appendChild(card);
+      });
+      if(!locked){
+        var addWrap = document.createElement("div");
+        addWrap.innerHTML = '<button class="secondary" id="addSupersetBtn" style="width:100%;">' +
+          '➕ Add Superset</button>' +
+          '<p class="muted" style="font-size:11px; margin:6px 0 0; text-align:center;">' +
+          'Two supersets suits heavy, low-rep work. Four suits conditioning.</p>';
+        list.appendChild(addWrap);
+        document.getElementById("addSupersetBtn").addEventListener("click", function(){
+          var pool = meta.poolA || PUSH_EXERCISES, poolB = meta.poolB || PULL_EXERCISES;
+          dayData.supersets.push({
+            a: mkEx(pool[dayData.supersets.length % pool.length]),
+            b: mkEx(poolB[dayData.supersets.length % poolB.length])
+          });
+          dayData.exerciseNamesSnapshot = dayExerciseSignature(day);
+          dayData.exerciseStreak = 0;
+          saveConfig(config);
+          renderSetup();
+          updateWorkoutIdleUI();
+        });
+      }
+      list.querySelectorAll(".removeSupersetBtn").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          var i = parseInt(btn.dataset.idx, 10);
+          var ss = dayData.supersets[i];
+          if(!confirm("Remove Superset " + (i+1) + " (" + ss.a.name + " / " + ss.b.name + ")?")) return;
+          dayData.supersets.splice(i, 1);
+          dayData.exerciseNamesSnapshot = dayExerciseSignature(day);
+          dayData.exerciseStreak = 0;
+          saveConfig(config);
+          renderSetup();
+          updateWorkoutIdleUI();
+        });
       });
     } else if(meta.type === "single" || meta.type === "timed" || meta.type === "interval"){
       var card = document.createElement("div");
@@ -2205,11 +2392,13 @@
       return;
     }
     if(meta.fillMode === "pair"){
-      var picksA = shuffle(meta.poolA).slice(0, 4);
-      var picksB = shuffle(meta.poolB).slice(0, 4);
+      // Loops the shuffled pool rather than slicing to a fixed four, so a day with two
+      // supersets (or eight) fills correctly instead of leaving slots undefined.
+      var picksA = shuffle(meta.poolA);
+      var picksB = shuffle(meta.poolB);
       dayData.supersets.forEach(function(ss, i){
-        ss.a.name = picksA[i];
-        ss.b.name = picksB[i];
+        ss.a.name = picksA[i % picksA.length];
+        ss.b.name = picksB[i % picksB.length];
         applySingleSidedRepDefault(ss.a);
         applySingleSidedRepDefault(ss.b);
       });
