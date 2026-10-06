@@ -684,7 +684,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-09-27-b</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-06-a</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -3433,6 +3433,50 @@
     }
   });
 
+  // ---------- Carrying working weights into next session ----------
+  // Without this, the weight you actually lifted lived only in History: the Setup box kept
+  // whatever was typed there once, so every session started from a number you had to
+  // remember yourself. Progressive overload is the whole point of a strength block, and it
+  // can't work if last week's load isn't in front of you.
+  //
+  // Deliberately weights ONLY, never rep targets. Reps are a goal you're aiming at — if a
+  // hard set stops at 4, the target for next week is still 6, not 4. Copying that back
+  // would quietly ratchet your programme downward every time you had a bad set.
+  //
+  // The LAST round is the one that carries. If you stripped weight partway through because
+  // the first load was too ambitious, the number you finished on is the honest starting
+  // point for next time — that's exactly the self-correction that should stick.
+  function carryWeightsForward(day, rounds){
+    var meta = DAY_META[day], dd = config.days[day];
+    if(!meta || !dd || !rounds || !rounds.length) return false;
+    // Circuit days rewrite the current exercise name as they advance, so there's no stable
+    // mapping back to a configured slot — and they carry no weight anyway.
+    if(meta.type === "circuit" || meta.type === "rest") return false;
+
+    var slots = [];
+    if(meta.type === "supersets"){
+      (dd.supersets || []).forEach(function(ss){ slots.push(ss.a); slots.push(ss.b); });
+    } else if(dd.exercise){
+      slots.push(dd.exercise);
+    }
+    var last = rounds[rounds.length - 1];
+    var changed = false;
+    slots.forEach(function(ex, i){
+      var entry = last[i];
+      if(!entry) return;
+      // If the lineup was edited mid-session the positions no longer line up; don't guess.
+      if(entry.name !== ex.name) return;
+      if(entry.isHold) return;                 // held for time — no weight to speak of
+      var w = String(entry.weight == null ? "" : entry.weight).trim();
+      if(w === "") return;                     // left blank — keep whatever was there
+      if(String(ex.weight == null ? "" : ex.weight) !== w){
+        ex.weight = w;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   function finishWorkout(intensity){
     // A "timed" day (continuous cardio) never has a round logged via a button — count it
     // as the 1 set it is once you finish, so History has something to show.
@@ -3470,6 +3514,7 @@
     // A completed workout is the signal that this day's current lineup got used again —
     // bump its "in a row" streak (or start a fresh one if the exercises changed since the
     // last time this was checked, e.g. via Auto-Fill without ever opening Setup).
+    carryWeightsForward(session.day, session.rounds);
     (function(){
       var day = session.day, meta = DAY_META[day];
       var dayData = config.days[day];
