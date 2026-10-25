@@ -99,9 +99,25 @@
   }
   .timer-big .clock{font-size:56px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:1px;}
   .timer-big .label{color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:0.8px; margin-top:2px;}
-  #quickTimerClock{cursor:pointer;}
-  #quickTimerClock:focus{outline:2px solid var(--accent2); border-color:var(--accent2); cursor:text;}
-  #quickTimerClock:disabled{opacity:0.5; cursor:default;}
+  /* Rest timers: compact while idle so they don't push the exercise rows down the screen,
+     then the running one's clock jumps to 40px and its row gets an accent bar — readable
+     from arm's length on a bench without either row being tall the rest of the time. */
+  .rest-timer{border-left:3px solid transparent; padding-left:10px; margin-left:-13px;}
+  .rest-timer.live{border-left-color:var(--accent);}
+  .rest-head{display:flex; align-items:center; justify-content:space-between; gap:10px;}
+  .rest-label{font-size:15px; font-weight:700;}
+  .rest-controls{display:flex; align-items:center; gap:10px;}
+  .rest-clock{
+    width:92px; text-align:center; font-size:22px; font-weight:800;
+    font-variant-numeric:tabular-nums; padding:6px 8px; cursor:pointer;
+  }
+  .rest-timer.live .rest-clock{font-size:40px; color:var(--accent); border-color:var(--accent);}
+  .rest-clock:focus{outline:2px solid var(--accent2); border-color:var(--accent2); cursor:text;}
+  .rest-clock:disabled{opacity:1; cursor:default;}
+  button.secondary.rest-start{width:auto; margin-top:0; padding:10px 16px; flex:none;}
+  .rest-timer.live button.secondary.rest-start{border-color:var(--accent); color:var(--accent);}
+  .rest-divider{height:1px; background:var(--border); margin:14px 0;}
+  #quickTimerCard input[type=range]{width:100%; margin-top:10px; accent-color:var(--accent);}
   .cap-warn{color:var(--danger);}
   .round-badge{
     display:inline-block; background:var(--card2); border:1px solid var(--border); border-radius:999px;
@@ -199,17 +215,34 @@
       </div>
     </div>
 
+    <!-- Two saved rest lengths instead of one, because a heavy day uses two different ones:
+         a shorter wait between the A and B supersets, a longer one before going back round.
+         Only ever one runs at a time — you're resting once — so starting either stops the
+         other, and a single Reset serves both. -->
     <div class="card" id="quickTimerCard">
-      <h2>Quick Timer</h2>
-      <div class="center">
-        <input type="text" inputmode="numeric" class="clock" id="quickTimerClock" value="1:00" style="font-size:40px; width:100%; text-align:center;">
+      <h2>Rest Timers</h2>
+      <div class="rest-timer" id="restWrap1">
+        <div class="rest-head">
+          <span class="rest-label">Rest 1</span>
+          <div class="rest-controls">
+            <input type="text" inputmode="numeric" class="rest-clock" id="restClock1" value="1:00">
+            <button class="secondary rest-start" id="restStart1">▶ Start</button>
+          </div>
+        </div>
+        <input type="range" id="restRange1" min="5" max="180" step="5" value="60" aria-label="Rest 1 duration">
       </div>
-      <input type="range" id="quickTimerDuration" min="5" max="60" step="1" value="60" style="width:100%; margin-top:6px;">
-      <div class="day-nav-label" id="quickTimerDurationLabel" style="margin-top:2px;">Duration: 60s</div>
-      <div class="row2" style="margin-top:10px;">
-        <button class="primary" id="quickTimerStartBtn" style="margin-top:0;">▶ Start</button>
-        <button class="secondary" id="quickTimerResetBtn" style="margin-top:0;">↺ Reset</button>
+      <div class="rest-divider"></div>
+      <div class="rest-timer" id="restWrap2">
+        <div class="rest-head">
+          <span class="rest-label">Rest 2</span>
+          <div class="rest-controls">
+            <input type="text" inputmode="numeric" class="rest-clock" id="restClock2" value="2:00">
+            <button class="secondary rest-start" id="restStart2">▶ Start</button>
+          </div>
+        </div>
+        <input type="range" id="restRange2" min="5" max="180" step="5" value="120" aria-label="Rest 2 duration">
       </div>
+      <button class="secondary" id="restResetBtn" style="margin-top:14px;">↺ Reset</button>
     </div>
 
     <div id="idleBlock" class="card">
@@ -684,7 +717,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-06-a</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-24-b</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -1383,6 +1416,11 @@
       finishSound: "levelup3",     // whole workout done
       soundRolesV1: true,
       timerDuration: 60,
+      // Two saved rest lengths, global rather than per-day: you'd only change them at a
+      // block boundary, which is a couple of times a year.
+      restSec1: 60,
+      restSec2: 120,
+      restTimersV1: true,
       // Field-tested on iPhone: "solo" and "duck" are BOTH silenced by the mute switch, and
       // only "takeover" survives it — but takeover stops other audio for good. "duck" is the
       // one mode where a podcast lives through a workout, so it's the default, paired with
@@ -1466,6 +1504,16 @@
       if(!cfg.restSound) cfg.restSound = "woodblock3";
       if(!cfg.finishSound) cfg.finishSound = "levelup3";
       if(!cfg.timerDuration) cfg.timerDuration = 60;
+      // The single Quick Timer became two. Rest 1 inherits whatever length was already set,
+      // so nothing you'd dialled in is lost; Rest 2 starts at a sensible 2 minutes.
+      if(!cfg.restTimersV1){
+        cfg.restSec1 = cfg.timerDuration || 60;
+        cfg.restSec2 = 120;
+        cfg.restTimersV1 = true;
+        starterFoodsChanged = true;
+      }
+      if(!(cfg.restSec1 > 0)) cfg.restSec1 = 60;
+      if(!(cfg.restSec2 > 0)) cfg.restSec2 = 120;
       if(["solo","duck","takeover"].indexOf(cfg.audioShareMode) === -1) cfg.audioShareMode = "duck";
       if(typeof cfg.usdaApiKey !== "string") cfg.usdaApiKey = "";
       if(!cfg.profile) cfg.profile = { age:null, sex:"", heightFt:null, heightIn:null, weightLb:null, activityLevel:"moderate", goal:"maintain" };
@@ -3418,8 +3466,8 @@
       document.getElementById("completeRoundBtn").disabled = false;
       startTicker();
     } else {
-      // pause — also pause the Quick Timer if it's running so nothing keeps counting silently
-      pauseQuickTimerRun();
+      // pause — also stop a running rest timer so nothing keeps counting silently
+      stopAllRestTimers();
       if((session.dayType === "interval" || session.dayType === "circuit") && session.interval && !session.interval.finished){
         session.interval.remainingMs = Math.max(0, session.interval.phaseEndsAt - Date.now());
       }
@@ -4128,73 +4176,76 @@
     fillSoundSelect("finishSoundSelect", config.finishSound, "levelup3");
   }
 
-  var quickTimer = {
-    duration: config.timerDuration || 60,
-    remaining: config.timerDuration || 60,
-    running: false,
-    endsAt: null,
-    intervalId: null
+  var REST_MIN_SEC = 5, REST_MAX_SEC = 180, REST_STEP_SEC = 5;
+
+  // Two independent durations, one shared ticker — only one timer can ever be running,
+  // because you only rest once. Countdown is driven off endsAt (a wall-clock timestamp)
+  // rather than decrementing a counter, so backgrounding the app doesn't make it drift.
+  var restTimers = {
+    "1": { key:"restSec1", duration:60,  remaining:60,  running:false, endsAt:null },
+    "2": { key:"restSec2", duration:120, remaining:120, running:false, endsAt:null }
   };
+  var restTickId = null;
 
   function formatQuickTime(sec){
     var m = Math.floor(sec/60), s = sec%60;
     return m + ":" + String(s).padStart(2,"0");
   }
-
-  function renderQuickTimer(){
-    var clockInp = document.getElementById("quickTimerClock");
-    if(document.activeElement !== clockInp){
-      clockInp.value = formatQuickTime(quickTimer.remaining);
-    }
-    clockInp.disabled = quickTimer.running;
-    document.getElementById("quickTimerDurationLabel").textContent = "Duration: " + quickTimer.duration + "s";
-    document.getElementById("quickTimerStartBtn").textContent = quickTimer.running ? "⏸ Pause" : "▶ Start";
-    document.getElementById("quickTimerDuration").disabled = quickTimer.running;
+  function snapRestSec(v){
+    v = Math.round(v / REST_STEP_SEC) * REST_STEP_SEC;
+    return Math.max(REST_MIN_SEC, Math.min(REST_MAX_SEC, v));
   }
 
-  function parseQuickTimerInput(str){
+  function renderRestTimer(n){
+    var t = restTimers[n];
+    var clock = document.getElementById("restClock" + n);
+    var range = document.getElementById("restRange" + n);
+    var wrap  = document.getElementById("restWrap" + n);
+    if(!clock || !range || !wrap) return;
+    if(document.activeElement !== clock) clock.value = formatQuickTime(t.remaining);
+    clock.disabled = t.running;
+    range.value = String(t.duration);
+    range.disabled = t.running;
+    wrap.classList.toggle("live", t.running);
+    document.getElementById("restStart" + n).textContent = t.running ? "⏸ Stop" : "▶ Start";
+  }
+  function renderRestTimers(){ renderRestTimer("1"); renderRestTimer("2"); }
+
+  function setRestDuration(n, secs){
+    var t = restTimers[n];
+    t.duration = snapRestSec(secs);
+    t.remaining = t.duration;
+    config[t.key] = t.duration;
+    saveConfig(config);
+    renderRestTimer(n);
+  }
+
+  function parseRestInput(str, fallback){
     str = (str || "").trim();
     var val;
     if(str.indexOf(":") > -1){
       var parts = str.split(":");
-      var mins = parseInt(parts[0], 10) || 0;
-      var secs = parseInt(parts[1], 10) || 0;
-      val = mins*60 + secs;
+      val = (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
     } else {
       val = parseInt(str.replace(/[^0-9]/g, ""), 10);
     }
-    if(isNaN(val)) val = quickTimer.duration;
-    return Math.max(5, Math.min(60, val));
+    if(isNaN(val)) val = fallback;
+    return snapRestSec(val);
   }
 
-  function commitQuickTimerInput(){
-    var clockInp = document.getElementById("quickTimerClock");
-    var val = parseQuickTimerInput(clockInp.value);
-    quickTimer.duration = val;
-    quickTimer.remaining = val;
-    config.timerDuration = val;
-    saveConfig(config);
-    document.getElementById("quickTimerDuration").value = String(val);
-    renderQuickTimer();
-  }
-
-  (function(){
-    var clockInp = document.getElementById("quickTimerClock");
-    clockInp.addEventListener("focus", function(){ clockInp.select(); });
-    clockInp.addEventListener("blur", commitQuickTimerInput);
-    clockInp.addEventListener("keydown", function(e){
-      if(e.key === "Enter"){ e.preventDefault(); clockInp.blur(); }
+  ["1","2"].forEach(function(n){
+    var clock = document.getElementById("restClock" + n);
+    clock.addEventListener("focus", function(){ clock.select(); });
+    clock.addEventListener("blur", function(){
+      setRestDuration(n, parseRestInput(clock.value, restTimers[n].duration));
     });
-  })();
-
-  document.getElementById("quickTimerDuration").addEventListener("input", function(e){
-    if(quickTimer.running) return;
-    var val = parseInt(e.target.value, 10);
-    quickTimer.duration = val;
-    quickTimer.remaining = val;
-    config.timerDuration = val;
-    saveConfig(config);
-    renderQuickTimer();
+    clock.addEventListener("keydown", function(e){
+      if(e.key === "Enter"){ e.preventDefault(); clock.blur(); }
+    });
+    document.getElementById("restRange" + n).addEventListener("input", function(e){
+      if(restTimers[n].running) return;
+      setRestDuration(n, parseInt(e.target.value, 10));
+    });
   });
 
   var audioShareModeSelect = document.getElementById("audioShareModeSelect");
@@ -4250,60 +4301,67 @@
     playFinishedSound();
   });
 
-  function quickTimerTick(){
-    var msLeft = quickTimer.endsAt - Date.now();
-    if(msLeft <= 0){
-      quickTimer.running = false;
-      clearInterval(quickTimer.intervalId);
-      playTimerSound();
-      // Snap the display back to the configured duration (e.g. 1:00) instead of leaving it
-      // sitting at 0:00 — ready for the next round without needing a separate Reset tap.
-      quickTimer.remaining = quickTimer.duration;
-      renderQuickTimer();
-      return;
-    }
-    quickTimer.remaining = Math.ceil(msLeft/1000);
-    renderQuickTimer();
+  function restTick(){
+    ["1","2"].forEach(function(n){
+      var t = restTimers[n];
+      if(!t.running) return;
+      var msLeft = t.endsAt - Date.now();
+      if(msLeft <= 0){
+        t.running = false;
+        t.endsAt = null;
+        stopRestTicker();
+        playTimerSound();
+        // Snap back to the configured length rather than sitting at 0:00 — ready for the
+        // next set without needing a Reset tap.
+        t.remaining = t.duration;
+        renderRestTimer(n);
+        return;
+      }
+      t.remaining = Math.ceil(msLeft/1000);
+      renderRestTimer(n);
+    });
+  }
+  function stopRestTicker(){
+    if(restTickId){ clearInterval(restTickId); restTickId = null; }
   }
 
-  function pauseQuickTimerRun(){
-    if(!quickTimer.running) return;
-    quickTimer.remaining = Math.max(0, Math.ceil((quickTimer.endsAt - Date.now())/1000));
-    quickTimer.running = false;
-    clearInterval(quickTimer.intervalId);
-    renderQuickTimer();
+  // Stops whichever timer is running and puts both back to their set lengths.
+  function stopAllRestTimers(){
+    stopRestTicker();
+    ["1","2"].forEach(function(n){
+      var t = restTimers[n];
+      t.running = false;
+      t.endsAt = null;
+      t.remaining = t.duration;
+      renderRestTimer(n);
+    });
   }
 
-  function startQuickTimerRun(){
+  function startRestTimer(n){
+    // Starting one stops the other: there's only ever one rest happening.
+    stopAllRestTimers();
     ensureBeepPermission();   // same reasoning as startWorkout: claim it inside the real tap
-    if(quickTimer.remaining <= 0) quickTimer.remaining = quickTimer.duration;
-    quickTimer.endsAt = Date.now() + quickTimer.remaining*1000;
-    quickTimer.running = true;
-    clearInterval(quickTimer.intervalId);
-    quickTimerTick();
-    quickTimer.intervalId = setInterval(quickTimerTick, 250);
-    renderQuickTimer();
+    var t = restTimers[n];
+    t.remaining = t.duration;
+    t.endsAt = Date.now() + t.remaining*1000;
+    t.running = true;
+    restTick();
+    restTickId = setInterval(restTick, 250);
+    renderRestTimers();
   }
 
-  // Used when a round is completed: always restarts the Quick Timer fresh at its configured
-  // duration, so there's a single rest countdown instead of a redundant separate one.
-  function kickOffRestTimer(){
-    clearInterval(quickTimer.intervalId);
-    quickTimer.remaining = quickTimer.duration;
-    startQuickTimerRun();
-  }
+  // Completing a round is the end of a full trip through the supersets, so it kicks off
+  // Rest 2 — the longer "before going back round" wait — rather than the short one.
+  function kickOffRestTimer(){ startRestTimer("2"); }
 
-  document.getElementById("quickTimerStartBtn").addEventListener("click", function(){
-    if(quickTimer.running) pauseQuickTimerRun();
-    else startQuickTimerRun();
+  ["1","2"].forEach(function(n){
+    document.getElementById("restStart" + n).addEventListener("click", function(){
+      if(restTimers[n].running) stopAllRestTimers();
+      else startRestTimer(n);
+    });
   });
 
-  document.getElementById("quickTimerResetBtn").addEventListener("click", function(){
-    clearInterval(quickTimer.intervalId);
-    quickTimer.running = false;
-    quickTimer.remaining = quickTimer.duration;
-    renderQuickTimer();
-  });
+  document.getElementById("restResetBtn").addEventListener("click", stopAllRestTimers);
 
   // ---------- Profile screen ----------
   function renderProfile(){
@@ -5980,8 +6038,9 @@
   document.getElementById("manualDateInput").value = todayLocalDateStr();
   updateManualFormForDay();
   populateTimerSoundSelect();
-  document.getElementById("quickTimerDuration").value = String(quickTimer.duration);
-  renderQuickTimer();
+  restTimers["1"].duration = restTimers["1"].remaining = snapRestSec(config.restSec1 || 60);
+  restTimers["2"].duration = restTimers["2"].remaining = snapRestSec(config.restSec2 || 120);
+  renderRestTimers();
   renderAudioStatus();
   updateQuickTimerVisibility();
   restoreSession();
