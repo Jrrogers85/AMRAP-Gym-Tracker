@@ -717,7 +717,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-24-b</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-26-b</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -2888,7 +2888,9 @@
       capAlertPlayed: false,
       fiveMinMarksPlayed: [], // Day 2 (continuous/"timed") only — which 5-min marks have already beeped
       rounds: [],           // completed rounds
-      roundSplitsMs: [],    // how long each completed round took (pause-aware), supersets days only
+      roundSplitsMs: [],    // working time per completed round (pause- and rest-aware), supersets days only
+      roundStartElapsedMs: 0,  // elapsed clock when the previous round was banked
+      restMsThisRound: 0,      // rest-timer time run since then, subtracted from the next split
       current: newRoundEntries(null, dayDataSnapshot, meta.type)
     };
     if(meta.type === "interval" || meta.type === "circuit"){
@@ -3409,8 +3411,17 @@
     // Split time = elapsed-so-far minus whatever's already been credited to earlier rounds
     // (pause-aware, since getElapsedMs() already subtracts paused time).
     if(!session.roundSplitsMs) session.roundSplitsMs = [];
-    var priorMs = session.roundSplitsMs.reduce(function(sum, ms){ return sum + ms; }, 0);
-    session.roundSplitsMs.push(Math.max(0, getElapsedMs() - priorMs));
+    // A split is WORKING time: the gap since the last round, minus however long Rest 2
+    // actually ran for. Rest 1 stays in, because it happens between the two supersets and
+    // is part of the round. Before this, the between-round rest was baked in too — which
+    // made round 1 look dramatically faster than the rest purely because nothing preceded it.
+    bankRestRun();
+    var nowMs = getElapsedMs();
+    var baseMs = session.roundStartElapsedMs || 0;
+    var restMs = session.restMsThisRound || 0;
+    session.roundSplitsMs.push(Math.max(0, nowMs - baseMs - restMs));
+    session.roundStartElapsedMs = nowMs;
+    session.restMsThisRound = 0;
     session.rounds.push(session.current);
     session.current = newRoundEntries(session.rounds[session.rounds.length-1], session.dayData, session.dayType);
     persistSession();
@@ -4186,6 +4197,26 @@
     "2": { key:"restSec2", duration:120, remaining:120, running:false, endsAt:null }
   };
   var restTickId = null;
+  // Wall-clock moment the running rest timer started, plus which one it was, so the time it
+  // actually ran can be taken out of the round split. Banked on stop, on reaching zero, and
+  // when a round ends.
+  //
+  // Only REST 2 is deducted. Rest 1 sits between the two supersets — inside a round — so it
+  // belongs to that round's work the same way the lifting does. Rest 2 is the gap between
+  // one round finishing and the next starting, which is the dead time worth removing.
+  var restRunStartedAt = null, restRunWhich = null;
+  function bankRestRun(){
+    if(restRunStartedAt == null) return;
+    var ms = Math.max(0, Date.now() - restRunStartedAt);
+    var which = restRunWhich;
+    restRunStartedAt = null;
+    restRunWhich = null;
+    if(which !== "2") return;
+    if(session){
+      session.restMsThisRound = (session.restMsThisRound || 0) + ms;
+      persistSession();
+    }
+  }
 
   function formatQuickTime(sec){
     var m = Math.floor(sec/60), s = sec%60;
@@ -4310,6 +4341,7 @@
         t.running = false;
         t.endsAt = null;
         stopRestTicker();
+        bankRestRun();
         playTimerSound();
         // Snap back to the configured length rather than sitting at 0:00 — ready for the
         // next set without needing a Reset tap.
@@ -4328,6 +4360,7 @@
   // Stops whichever timer is running and puts both back to their set lengths.
   function stopAllRestTimers(){
     stopRestTicker();
+    bankRestRun();
     ["1","2"].forEach(function(n){
       var t = restTimers[n];
       t.running = false;
@@ -4345,6 +4378,8 @@
     t.remaining = t.duration;
     t.endsAt = Date.now() + t.remaining*1000;
     t.running = true;
+    restRunStartedAt = Date.now();
+    restRunWhich = n;
     restTick();
     restTickId = setInterval(restTick, 250);
     renderRestTimers();
@@ -4774,6 +4809,11 @@
     title.style.margin = "14px 0 6px";
     title.textContent = "Round Times";
     wrap.appendChild(title);
+    var note = document.createElement("p");
+    note.className = "muted";
+    note.style.cssText = "font-size:11px; margin:0 0 8px;";
+    note.textContent = "Rest 1 counts as part of the round; the between-round rest doesn't.";
+    wrap.appendChild(note);
 
     var table = document.createElement("table");
     var head = "<tr>";
