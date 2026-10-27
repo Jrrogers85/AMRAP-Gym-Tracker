@@ -451,6 +451,9 @@
             <span class="day-nav-label" style="margin:0;" id="historyListMonthNote"></span>
             <button class="small danger" id="clearHistoryBtn">Clear All</button>
           </div>
+          <!-- Picking one workout drops the month limit and shows every session of that
+               day, because the point is watching one lift climb over weeks. -->
+          <select id="historyDayFilter" style="width:100%; margin-bottom:10px;"></select>
           <div id="historyList"></div>
         </div>
       </details>
@@ -717,7 +720,7 @@
   </div>
 </div>
 
-<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-26-b</span></footer>
+<footer class="note">Backed up to the cloud automatically. Add to Home Screen (Share → Add to Home Screen on iPhone) for an app-like icon.<br><span style="opacity:0.5;">Build 2026-10-27-a</span></footer>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
@@ -3410,26 +3413,31 @@
     // rest countdown instead of running a second, mismatched timer.
     // Split time = elapsed-so-far minus whatever's already been credited to earlier rounds
     // (pause-aware, since getElapsedMs() already subtracts paused time).
-    if(!session.roundSplitsMs) session.roundSplitsMs = [];
-    // A split is WORKING time: the gap since the last round, minus however long Rest 2
-    // actually ran for. Rest 1 stays in, because it happens between the two supersets and
-    // is part of the round. Before this, the between-round rest was baked in too — which
-    // made round 1 look dramatically faster than the rest purely because nothing preceded it.
-    bankRestRun();
-    var nowMs = getElapsedMs();
-    var baseMs = session.roundStartElapsedMs || 0;
-    var restMs = session.restMsThisRound || 0;
-    session.roundSplitsMs.push(Math.max(0, nowMs - baseMs - restMs));
-    session.roundStartElapsedMs = nowMs;
-    session.restMsThisRound = 0;
-    session.rounds.push(session.current);
+    bankCurrentRound();
     session.current = newRoundEntries(session.rounds[session.rounds.length-1], session.dayData, session.dayType);
     persistSession();
     renderRound();
     kickOffRestTimer();
   });
 
+  // A round only enters the log when you tap Complete Round — so finishing straight after a
+  // round's work silently binned it. Rather than guess, ask: if there's more than a minute
+  // of WORKING time sitting unlogged, that's a real round, not the couple of seconds
+  // between tapping Complete Round and tapping Finish.
+  var UNLOGGED_ROUND_MS = 60000;
   document.getElementById("finishWorkoutBtn").addEventListener("click", function(){
+    if(session && session.dayType === "supersets"){
+      var pendingMs = pendingRoundWorkMs();
+      if(pendingMs > UNLOGGED_ROUND_MS){
+        var mins = Math.floor(pendingMs/60000), secs = Math.round((pendingMs%60000)/1000);
+        var pretty = mins + ":" + String(secs).padStart(2, "0");
+        if(confirm("You're " + pretty + " into a round that hasn't been logged yet.\n\n" +
+                   "Log it as round " + (session.rounds.length + 1) + " before finishing?")){
+          bankCurrentRound();
+          persistSession();
+        }
+      }
+    }
     document.getElementById("activeBlock").style.display = "none";
     renderMuteReminders();
     document.getElementById("finishIntensityBlock").style.display = "block";
@@ -4205,6 +4213,30 @@
   // belongs to that round's work the same way the lifting does. Rest 2 is the gap between
   // one round finishing and the next starting, which is the dead time worth removing.
   var restRunStartedAt = null, restRunWhich = null;
+  // How much WORKING time has built up since the last logged round — the split this round
+  // would get if you banked it right now. Rest 2 is excluded (it's dead time between
+  // rounds); Rest 1 counts, because it happens between the two supersets and is part of
+  // the round. This one number answers "is there unlogged work sitting here?", which is
+  // what decides whether Finish Workout should stop and ask.
+  function pendingRoundWorkMs(){
+    if(!session) return 0;
+    bankRestRun();
+    return Math.max(0, getElapsedMs() - (session.roundStartElapsedMs || 0) - (session.restMsThisRound || 0));
+  }
+
+  // Moves the round on screen into the log and starts the clock for the next one. Shared by
+  // Complete Round and by the "log it first?" prompt on Finish Workout, so both routes
+  // record a round identically.
+  function bankCurrentRound(){
+    if(!session) return;
+    if(!session.roundSplitsMs) session.roundSplitsMs = [];
+    var workMs = pendingRoundWorkMs();
+    session.roundSplitsMs.push(workMs);
+    session.roundStartElapsedMs = getElapsedMs();
+    session.restMsThisRound = 0;
+    session.rounds.push(session.current);
+  }
+
   function bankRestRun(){
     if(restRunStartedAt == null) return;
     var ms = Math.max(0, Date.now() - restRunStartedAt);
@@ -4614,25 +4646,61 @@
   // Past Workouts list is scoped to whichever month the calendar above is currently showing
   // (same calViewDate) rather than a separate month picker — flipping the calendar's month
   // re-filters this list too, so it can't grow into an endless scroll over time.
+  var historyDayFilter = "all";   // "all", or a day number as a string
+
+  function renderHistoryDayFilter(){
+    var sel = document.getElementById("historyDayFilter");
+    if(!sel) return;
+    var opts = '<option value="all">All workouts</option>';
+    for(var d = 1; d <= WORKOUT_COUNT; d++){
+      var meta = DAY_META[d];
+      if(!meta || meta.type === "rest") continue;
+      opts += '<option value="'+d+'"'+(historyDayFilter === String(d) ? " selected" : "")+'>' +
+              escapeHtml(meta.label) + '</option>';
+    }
+    sel.innerHTML = opts;
+    sel.value = historyDayFilter;
+    // Wired here, not at the end of renderHistory — that function returns early when there
+    // are no matching workouts, which would otherwise leave the dropdown dead exactly when
+    // you need it to switch back.
+    sel.onchange = function(){
+      historyDayFilter = this.value;
+      renderHistory();
+    };
+  }
+
   function renderHistory(){
     renderHistoryCalendar();
+    renderHistoryDayFilter();
     var allHistory = loadHistory();
     var wrap = document.getElementById("historyList");
     var monthLabel = calViewDate.toLocaleDateString(undefined, { month:"long", year:"numeric" });
-    document.getElementById("historyListMonthNote").textContent = "Showing " + monthLabel;
+    var byDay = historyDayFilter !== "all";
+    var dayLabel = byDay && DAY_META[historyDayFilter] ? DAY_META[historyDayFilter].label : "";
+    document.getElementById("historyListMonthNote").textContent =
+      byDay ? ("Showing every " + dayLabel) : ("Showing " + monthLabel);
 
     if(allHistory.length === 0){
       document.getElementById("historyListSummary").textContent = "Past Workouts (0)";
       wrap.innerHTML = '<div class="card idle-hint">No workouts saved yet.</div>';
       return;
     }
-    var filterKey = calViewDate.getFullYear() + "-" + String(calViewDate.getMonth() + 1).padStart(2,"0");
-    var history = allHistory.filter(function(r){
-      return dateKeyLocal(new Date(r.date)).slice(0, 7) === filterKey;
-    });
+    var history;
+    if(byDay){
+      // Deliberately ignores the month — the reason to filter by day is to watch one lift
+      // progress over weeks, which a one-month window would cut in half.
+      history = allHistory.filter(function(r){ return String(r.day) === historyDayFilter; });
+    } else {
+      var filterKey = calViewDate.getFullYear() + "-" + String(calViewDate.getMonth() + 1).padStart(2,"0");
+      history = allHistory.filter(function(r){
+        return dateKeyLocal(new Date(r.date)).slice(0, 7) === filterKey;
+      });
+    }
     document.getElementById("historyListSummary").textContent = "Past Workouts (" + history.length + ")";
     if(history.length === 0){
-      wrap.innerHTML = '<div class="card idle-hint">No workouts logged in ' + escapeHtml(monthLabel) + '.</div>';
+      wrap.innerHTML = '<div class="card idle-hint">No ' +
+        (byDay ? (escapeHtml(dayLabel) + " workouts logged yet.") : ("workouts logged in " + escapeHtml(monthLabel) + ".")) +
+        '</div>';
       return;
     }
     wrap.innerHTML = "";
